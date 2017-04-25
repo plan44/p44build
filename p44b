@@ -1,0 +1,216 @@
+#!/bin/bash
+
+# p44b: host script for managing LEDE based product builds
+
+# must always be started from buildroot
+BUILDROOT="$(pwd -P)"
+
+# the alias name to be used for referring to the script
+ALIAS="p44b"
+
+# actual script location and file
+SCRIPTDIR="$(dirname $0)"
+pushd ${SCRIPTDIR} >/dev/null
+SCRIPTDIR="$(pwd -P)"
+popd >/dev/null
+SCRIPTNAME="$(basename $0)"
+SCRIPTFILE="${SCRIPTDIR}/${SCRIPTNAME}"
+
+# derived
+P44B_STATE_DIR="${BUILDROOT}/.p44build"
+
+# from state, if existing
+if [ -f "${P44B_STATE_DIR}/p44b_src_dir" ]; then
+  P44B_SRC_DIR=$(cat "${P44B_STATE_DIR}/p44b_src_dir")
+  if [ ! -d "${P44B_SRC_DIR}" ]; then
+    echo "Warning: ${ALIAS} source dir does not exist: '${P44B_SRC_DIR}'"
+    P44B_SRC_DIR=
+  fi
+fi
+if [ -f "${P44B_STATE_DIR}/target_id" ]; then
+  TARGET_ID=$(cat "${P44B_STATE_DIR}/target_id")
+fi
+# well-known subdirs of P44B_SRC_DIR
+PATCHES_DIR="lede-patches"
+CONFIGS_DIR="configs"
+
+
+# echo "SCRIPTDIR=$SCRIPTDIR"
+# echo "SCRIPTNAME=$SCRIPTNAME"
+# echo "SCRIPTFILE=$SCRIPTFILE"
+# echo "P44B_STATE_DIR=$P44B_STATE_DIR"
+# echo "P44B_SRC_DIR=$P44B_SRC_DIR"
+#
+# exit 0
+
+# display status
+p44b_status() {
+  if [[ $# -ne 0 ]]; then
+    p44b_usage
+    return 1
+  fi
+  if [ ! -z "${P44B_SRC_DIR}" ]; then
+    echo "Initialized with ${ALIAS} sources at '${P44B_SRC_DIR}'"
+    echo "Current target: '${TARGET_ID}'"
+  else
+    echo "This tree is not initialized for ${ALIAS} yet"
+  fi
+}
+
+
+# Initialize a buildroot tree for p44b operation
+#
+# Usage: from a LEDE buildroot:
+#    </full/path/to/arbitrary/location>/p44b init <path to p44build source directory of a product>
+#
+# Does the following
+# - put a softlink called "p44b" pointing to the script itself into buildroot
+# - creates a .p44build directory in the buildroot
+# - remembers the product's p44build source directory in .p44build/p44b_src_dir
+# - sets a softlink to the P44B_SRC dir
+p44b_init() {
+  local NEW_SRC_DIR="$1"
+  if [[ $# -ne 1 ]]; then
+    p44b_usage
+    return 1
+  fi
+  if [ ! -d "${NEW_SRC_DIR}" ]; then
+    echo "Error: '${NEW_SRC_DIR}' is not a directory"
+    return 1
+  fi
+  # create state directory
+  if [ -e "${P44B_STATE_DIR}" ]; then
+    echo "Error: p44build apparently already initialized - if not, please cleanup first"
+    return 1
+  fi
+  mkdir "${P44B_STATE_DIR}"
+  # expand and save the directory
+  pushd "${NEW_SRC_DIR}" >/dev/null
+  P44B_SRC_DIR="$(pwd -P)"
+  popd >/dev/null
+  echo -n "${P44B_SRC_DIR}" > "${P44B_STATE_DIR}/p44b_src_dir"
+  # create soft link into buildroot to patch dir within sources
+  if [ -f "${BUILDROOT}/patches" ]; then
+    echo "Error: non-softlink '${BUILDROOT}/patches' already exists"
+    return 1
+  fi
+  ln -sf "${P44B_SRC_DIR}/${PATCHES_DIR}" "${BUILDROOT}/patches"
+  # create convenience soft link to script itself in buildroot (but do not replace regular file, should there be one)
+  if [ ! -f "${BUILDROOT}/${ALIAS}" ]; then
+    ln -sf "${SCRIPTFILE}" "${BUILDROOT}/${ALIAS}"
+  fi
+  return 0
+}
+
+
+# cleanup
+p44b_cleanup() {
+  if [[ $# -ne 0 ]]; then
+    p44b_usage
+    return 1
+  fi
+  # Cleanup buildroot
+  # - make sure patches are removed
+  pushd "${BUILDROOT}" >/dev/null
+  quilt pop -a
+  popd >/dev/null
+  # - remove the quilt working dir
+  rm -rf "${BUILDROOT}/.pc"
+  # - remove the softlink to the actual patches (but only softlink!)
+  if [ -h "${BUILDROOT}/patches" ]; then
+    rm "${BUILDROOT}/patches"
+  fi
+  # - remove the p44build state dir
+  if [ -d "${P44B_STATE_DIR}" ]; then
+    rm -rf "${P44B_STATE_DIR}"
+  fi
+  # Note: do not remove the convenience link (will be updated in case another version of the script is used explicitly)
+  return 0
+}
+
+
+# Prepare the tree for a specific target
+#
+# Does the following
+# - removes current patches
+# - discards previous changes to the tree
+# - checks out the buildroot commit as recorded in $P44B_SRC_DIR/buildroot_commit
+# - applies all buildroot patches
+# - copies platform's diffconfig to .config and expands it with make defconfig
+p44b_target() {
+  if [[ $# -ne 1 ]]; then
+    p44b_usage
+    return 1
+  fi
+  local NEW_TARGET_ID="$1"
+  local DIFFCONFIG="${P44B_SRC_DIR}/${CONFIGS_DIR}/diffconfig-${NEW_TARGET_ID}"
+  if [ ! -f "${DIFFCONFIG}" ]; then
+    echo "Error: buildroot configuration file '${DIFFCONFIG}' not found"
+    return 1
+  fi
+  # remember the target identifier
+  TARGET_ID="${NEW_TARGET_ID}"
+  echo -n "${TARGET_ID}" > "${P44B_STATE_DIR}/target_id"
+  # checkout the buildroot commit
+  if [ -f "${P44B_SRC_DIR}/buildroot_commit" ]; then
+    local BUILDROOT_COMMIT=$(cat "${P44B_SRC_DIR}/buildroot_commit")
+    pushd ${BUILDROOT} >/dev/null
+    # remove patches that might be there
+    quilt pop -a
+    # stash just in case, to avoid loosing data
+    git stash
+    # switch to correct buildroot state
+    git reset --hard
+    git checkout "${BUILDROOT_COMMIT}"
+    # apply the patches
+    quilt push -a
+    # copy the config and expand
+    cp "${DIFFCONFIG}" "${BUILDROOT}/.config"
+    make defconfig
+    popd >/dev/null
+  else
+    echo "Warning: no particular buildroot commit specified"
+  fi
+}
+
+
+
+
+# usage
+p44b_usage() {
+  echo "usage: ${SCRIPTNAME} status"
+  echo "   or: ${SCRIPTNAME} init <${ALIAS} source dir>"
+  echo "   or: ${SCRIPTNAME} cleanup"
+  echo "   or: ${SCRIPTNAME} target <target>"
+}
+
+
+# main
+if [[ $# -lt 1 ]]; then
+  p44b_usage
+  exit 1
+fi
+COMMAND="$1"
+shift 1
+case ${COMMAND} in
+  "status")
+    p44b_status "$@"
+    ;;
+  "init")
+    p44b_init "$@"
+    ;;
+  "cleanup")
+    p44b_cleanup "$@"
+    ;;
+  "target")
+    p44b_target "$@"
+    ;;
+  *)
+    echo "Unknown subcommand '${COMMAND}'"
+    p44b_usage
+    exit 1
+    ;;
+esac
+
+
+
