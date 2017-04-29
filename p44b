@@ -43,21 +43,6 @@ CONFIGS_DIR="configs"
 #
 # exit 0
 
-# display status
-p44b_status() {
-  if [[ $# -ne 0 ]]; then
-    p44b_usage
-    return 1
-  fi
-  if [ ! -z "${P44B_SRC_DIR}" ]; then
-    echo "Initialized with ${ALIAS} sources at '${P44B_SRC_DIR}'"
-    echo "Current target: '${TARGET_ID}'"
-  else
-    echo "This tree is not initialized for ${ALIAS} yet"
-  fi
-}
-
-
 # Initialize a buildroot tree for p44b operation
 #
 # Usage: from a LEDE buildroot:
@@ -136,7 +121,7 @@ p44b_cleanup() {
 # - discards previous changes to the tree
 # - checks out the buildroot commit as recorded in $P44B_SRC_DIR/buildroot_commit
 # - applies all buildroot patches
-# - copies platform's diffconfig to .config and expands it with make defconfig
+# - copies target's diffconfig to .config and expands it with make defconfig
 p44b_target() {
   if [[ $# -ne 1 ]]; then
     p44b_usage
@@ -174,6 +159,44 @@ p44b_target() {
 }
 
 
+# saves the current build state
+# - SHA of LEDE
+# - diffconfig for current target
+# - TODO: SHA of feeds
+# - TODO: SHA of specified packages
+p44b_save() {
+  if [[ $# -ne 0 ]]; then
+    p44b_usage
+    return 1
+  fi
+  if [[ -z "${TARGET_ID}" || -z "${P44B_SRC_DIR}" ]]; then
+    echo "No target selected, cannot save"
+    return 1
+  fi
+  # SHA and branch of buildroot
+  pushd ${BUILDROOT} >/dev/null
+  git rev-parse HEAD >"${P44B_SRC_DIR}/buildroot_commit_FROZEN"
+  git rev-parse --abbrev-ref HEAD >"${P44B_SRC_DIR}/buildroot_commit_BRANCH"
+  # diffconfig for current target
+  local DIFFCONFIG="${P44B_SRC_DIR}/${CONFIGS_DIR}/diffconfig-${TARGET_ID}"
+  ./scripts/diffconfig.sh >"${DIFFCONFIG}"
+  popd >/dev/null
+}
+
+
+# display status
+p44b_status() {
+  if [[ $# -ne 0 ]]; then
+    p44b_usage
+    return 1
+  fi
+  if [ ! -z "${P44B_SRC_DIR}" ]; then
+    echo "Initialized with ${ALIAS} sources at '${P44B_SRC_DIR}'"
+    echo "Current target: '${TARGET_ID}'"
+  else
+    echo "This tree is not initialized for ${ALIAS} yet"
+  fi
+}
 
 
 # usage
@@ -182,6 +205,7 @@ p44b_usage() {
   echo "   or: ${SCRIPTNAME} init <${ALIAS} source dir>"
   echo "   or: ${SCRIPTNAME} cleanup"
   echo "   or: ${SCRIPTNAME} target <target>"
+  echo "   or: ${SCRIPTNAME} save"
 }
 
 
@@ -204,6 +228,9 @@ case ${COMMAND} in
     ;;
   "target")
     p44b_target "$@"
+    ;;
+  "save")
+    p44b_save "$@"
     ;;
   *)
     echo "Unknown subcommand '${COMMAND}'"
