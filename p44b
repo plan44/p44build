@@ -44,7 +44,7 @@ read_config()
   # define derived vars
   VERSION_TAG="${TARGET_ID}_${CONFIG_VERSION_NUMBER}"
   if [ ! -z "${CONFIG_P44_FEED_NAME}" ]; then
-    VERSION_TAG="${TAG}_${CONFIG_P44_FEED_NAME}"
+    VERSION_TAG="${VERSION_TAG}_${CONFIG_P44_FEED_NAME}"
   fi
   popd >/dev/null
 }
@@ -192,6 +192,7 @@ p44b_save() {
   fi
   pushd ${BUILDROOT} >/dev/null
   # SHA and branch of buildroot
+  mkdir "${P44B_SRC_DIR}/${TRACKING_DIR}" 2>/dev/null
   git rev-parse HEAD >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA"
   git rev-parse --abbrev-ref HEAD >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_VERS"
   # diffconfig for current target
@@ -265,9 +266,10 @@ p44b_save() {
           # - create entry for tagging source repositories in tagging script
           echo "git clone --depth 1 --no-checkout --single-branch --branch ${GITVERS} ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
           echo "pushd ${PKG_NAME}" >>"${PUSHTAGS}"
-          echo "git tag ${TAG} ${GITREV}" >>"${PUSHTAGS}"
+          echo "git tag ${VERSION_TAG} ${GITREV}" >>"${PUSHTAGS}"
           echo "git push origin ${VERSION_TAG}" >>"${PUSHTAGS}"
           echo "popd" >>"${PUSHTAGS}"
+          chmod a+x "${PUSHTAGS}"
         fi
       fi
     fi
@@ -282,16 +284,23 @@ p44b_commitversion() {
     p44b_usage
     return 1
   fi
-  if [[ -z "${P44B_SRC_DIR}" || ! -f "${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA"]]; then
+  if [[ -z "${P44B_SRC_DIR}" || ! -f "${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA" ]]; then
     echo "Nothing saved, cannot commit"
     return 1
   fi
   read_config
-  pushd "${P44B_SRC_DIR}" >/dev/null
-  git add -A "${P44B_SRC_DIR}"
-  git commit -m "${VERSION_TAG}"
-  popd >/dev/null
+  if [[ -z "${VERSION_TAG}" ]]; then
+    echo ".config does not contain version information"
+    return 1
+  else
+    pushd "${P44B_SRC_DIR}" >/dev/null
+    git add -A "${P44B_SRC_DIR}"
+    git commit -m "${VERSION_TAG}"
+    popd >/dev/null
+  fi
 }
+
+
 
 # tag the current commit with a version tag
 p44b_tagversion() {
@@ -299,14 +308,22 @@ p44b_tagversion() {
     p44b_usage
     return 1
   fi
-  if [[ -z "${P44B_SRC_DIR}" || ! -f "${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA"]]; then
+  if [[ -z "${P44B_SRC_DIR}" || ! -f "${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA" ]]; then
     echo "Nothing saved, cannot tag"
     return 1
   fi
   read_config
-  pushd "${P44B_SRC_DIR}" >/dev/null
-  git tag "${VERSION_TAG}"
-  popd >/dev/null
+  if [[ -z "${VERSION_TAG}" ]]; then
+    echo ".config does not contain version information"
+    return 1
+  else
+    echo "Tagging: ${VERSION_TAG}"
+    pushd "${P44B_SRC_DIR}" >/dev/null
+    git tag "${VERSION_TAG}"
+    popd >/dev/null
+    echo "# You might also want to tag tracked packages by executing:"
+    echo "${P44B_SRC_DIR}/tracking/pushtags.sh"
+  fi
 }
 
 
