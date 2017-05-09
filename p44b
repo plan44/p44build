@@ -33,6 +33,23 @@ fi
 # well-known subdirs of P44B_SRC_DIR
 PATCHES_DIR="lede-patches"
 CONFIGS_DIR="configs"
+TRACKING_DIR="tracking"
+
+
+read_config()
+{
+  pushd ${BUILDROOT} >/dev/null
+  # import .config:
+  source "${P44B_SRC_DIR}/${CONFIGS_DIR}/.config-${TARGET_ID}" 2>/dev/null
+  # define derived vars
+  VERSION_TAG="${TARGET_ID}_${CONFIG_VERSION_NUMBER}"
+  if [ ! -z "${CONFIG_P44_FEED_NAME}" ]; then
+    VERSION_TAG="${TAG}_${CONFIG_P44_FEED_NAME}"
+  fi
+  popd >/dev/null
+}
+
+
 
 
 # echo "SCRIPTDIR=$SCRIPTDIR"
@@ -119,7 +136,7 @@ p44b_cleanup() {
 # Does the following
 # - removes current patches
 # - discards previous changes to the tree
-# - checks out the buildroot commit as recorded in $P44B_SRC_DIR/buildroot_commit
+# - checks out the buildroot commit as recorded in $P44B_SRC_DIR/buildroot_checkout
 # - applies all buildroot patches
 # - copies target's diffconfig to .config and expands it with make defconfig
 p44b_target() {
@@ -136,9 +153,9 @@ p44b_target() {
   # remember the target identifier
   TARGET_ID="${NEW_TARGET_ID}"
   echo -n "${TARGET_ID}" > "${P44B_STATE_DIR}/target_id"
-  # checkout the buildroot commit
-  if [ -f "${P44B_SRC_DIR}/buildroot_commit" ]; then
-    local BUILDROOT_COMMIT=$(cat "${P44B_SRC_DIR}/buildroot_commit")
+  # checkout the buildroot checkout
+  if [ -f "${P44B_SRC_DIR}/buildroot_checkout" ]; then
+    local BUILDROOT_CHECKOUT=$(cat "${P44B_SRC_DIR}/buildroot_checkout")
     pushd ${BUILDROOT} >/dev/null
     # remove patches that might be there
     quilt pop -a
@@ -146,7 +163,7 @@ p44b_target() {
     git stash
     # switch to correct buildroot state
     git reset --hard
-    git checkout "${BUILDROOT_COMMIT}"
+    git checkout "${BUILDROOT_CHECKOUT}"
     # apply the patches
     quilt push -a
     # copy the config and expand
@@ -154,7 +171,7 @@ p44b_target() {
     make defconfig
     popd >/dev/null
   else
-    echo "Warning: no particular buildroot commit specified"
+    echo "Warning: no buildroot_checkout (might want to use ${TRACKING_DIR}/buildroot_SHA or ${TRACKING_DIR}/buildroot_VERS)"
   fi
 }
 
@@ -173,15 +190,126 @@ p44b_save() {
     echo "No target selected, cannot save"
     return 1
   fi
-  # SHA and branch of buildroot
   pushd ${BUILDROOT} >/dev/null
-  git rev-parse HEAD >"${P44B_SRC_DIR}/buildroot_commit_FROZEN"
-  git rev-parse --abbrev-ref HEAD >"${P44B_SRC_DIR}/buildroot_commit_BRANCH"
+  # SHA and branch of buildroot
+  git rev-parse HEAD >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA"
+  git rev-parse --abbrev-ref HEAD >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_VERS"
   # diffconfig for current target
-  local DIFFCONFIG="${P44B_SRC_DIR}/${CONFIGS_DIR}/diffconfig-${TARGET_ID}"
-  ./scripts/diffconfig.sh >"${DIFFCONFIG}"
+  local CONFIGDIR="${P44B_SRC_DIR}/${CONFIGS_DIR}"
+  ./scripts/diffconfig.sh >"${CONFIGDIR}/diffconfig-${TARGET_ID}"
+  # complete config for reference purposes
+  cp .config "${CONFIGDIR}/.config-${TARGET_ID}"
+  popd >/dev/null
+  # Track package source SHAs/versions
+  read_config
+  local BUILD_DIR="${BUILDROOT}/build_dir/target-${CONFIG_TARGET_ARCH_PACKAGES}_${CONFIG_LIBC}-${CONFIG_LIBC_VERSION}"
+  # go through tracked packages
+  if [ ! -f "${P44B_SRC_DIR}/tracked_packages" ]; then
+    echo "no tracked_packages file -> nothing to track"
+    return 0
+  fi
+  local PACKAGES=$(cat "${P44B_SRC_DIR}/tracked_packages");
+  # remove the previous trackings
+  echo "# feed/package giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_VERS"
+  echo "# feed/package giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
+  local PUSHTAGS="${P44B_SRC_DIR}/${TRACKING_DIR}/pushtags.sh"
+  echo "#!/bin/bash" >"${PUSHTAGS}"
+  echo "pushd /tmp; rm -rf /tmp/p44b_temp; mkdir p44b_temp; cd p44b_temp" >>"${PUSHTAGS}"
+  for PSPEC in ${PACKAGES}; do
+    local FEEDNAME=${PSPEC%%/*}
+    local PKGNAME=${PSPEC#*/}
+    #echo "feed=$FEEDNAME pgk=$PKGNAME"
+    local PKGDIR="${BUILDROOT}/feeds/${FEEDNAME}/${PKGNAME}"
+    if [ ! -d "${PKGDIR}" ]; then
+      echo "*** package not found for ${PSPEC}"
+    else
+      #echo "packagedir=$PKGDIR"
+      # collect info from feed
+      local PKG_NAME=$(sed -n -e "/^PKG_NAME:=/s/PKG_NAME:=//p" "${PKGDIR}/Makefile")
+      local PKG_VERSION=$(sed -n -e "/^PKG_VERSION:=/s/PKG_VERSION:=//p" "${PKGDIR}/Makefile")
+      local PKG_SOURCE_URL=$(sed -n -e "/^PKG_SOURCE_URL:=/s/PKG_SOURCE_URL:=//p" "${PKGDIR}/Makefile")
+      local PKG_SOURCE_VERSION=$(sed -n -e "/^PKG_SOURCE_VERSION:=/s/PKG_SOURCE_VERSION:=//p" "${PKGDIR}/Makefile")
+      local PKGNAMEVERS="${PKG_NAME}-${PKG_VERSION}"
+      # build-dir as defined in makefile
+      local PD=$(sed -n -e "/^PKG_BUILD_DIR:=/s/PKG_BUILD_DIR:=//p" "${PKGDIR}/Makefile")
+      local PD=${PD//\$\(/\$\{}
+      local PD=${PD//\)/\}}
+      eval PKGBUILDDIR="$PD"
+      #echo "PKG_NAME=$PKG_NAME, PKG_VERSION=$PKG_VERSION, PKG_SOURCE_VERSION=$PKG_SOURCE_VERSION"
+      #echo "package build dir: ${PKGBUILDDIR}"
+      # collect info from build
+      if [ ! -d "${PKGBUILDDIR}" ]; then
+        echo "*** ${PKGNAMEVERS}: no build directory found"
+      elif [ ! -e "${PKGBUILDDIR}/.gitdownload_url" ]; then
+        echo "*** ${PKGNAMEVERS}: was not built with p44b checkout revision tracking"
+      else
+        local GITURL=$(cat "${PKGBUILDDIR}/.gitdownload_url")
+        local GITREV=$(cat "${PKGBUILDDIR}/.gitdownload_rev")
+        local GITVERS=$(cat "${PKGBUILDDIR}/.gitdownload_version")
+        local R=$(git ls-remote "${PKG_SOURCE_URL}" "${PKG_SOURCE_VERSION}")
+        local REV="${R%%[[:blank:]]*}"
+        # consistency check
+        if [[ "${GITVERS}" != "${PKG_SOURCE_VERSION}" ]]; then
+          echo "*** ${PKGNAMEVERS}: branch/commit recorded in build (${GITVERS}) differs from PKG_SOURCE_VERSION (${PKG_SOURCE_VERSION})"
+        elif [[ "${PKG_SOURCE_URL}" != "${GITURL}" ]]; then
+          echo "*** ${PKGNAMEVERS}: URL recorded in build (${GITURL}) differs from PKG_SOURCE_URL (${PKG_SOURCE_URL})"
+        elif [[ "${REV}" != "${GITREV}" ]]; then
+          echo "*** ${PKGNAMEVERS}: SHA recorded in build (${GITREV}) differs from git ls-remote (${REV})"
+        else
+          # checks ok, now record
+          echo "${PKGNAMEVERS}: was built from ${GITURL}:${GITVERS} (SHA:${GITREV})"
+          # - record fixed sha source
+          echo "${PSPEC} ${GITURL}:${GITREV}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
+          # - record version/branch source
+          echo "${PSPEC} ${GITURL}:${GITVERS}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_VERS"
+          # - create entry for tagging source repositories in tagging script
+          echo "git clone --depth 1 --no-checkout --single-branch --branch ${GITVERS} ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
+          echo "pushd ${PKG_NAME}" >>"${PUSHTAGS}"
+          echo "git tag ${TAG} ${GITREV}" >>"${PUSHTAGS}"
+          echo "git push origin ${VERSION_TAG}" >>"${PUSHTAGS}"
+          echo "popd" >>"${PUSHTAGS}"
+        fi
+      fi
+    fi
+  done
+  echo "popd" >>"${PUSHTAGS}"
+}
+
+
+# commit version as currently saved
+p44b_commitversion() {
+  if [[ $# -ne 0 ]]; then
+    p44b_usage
+    return 1
+  fi
+  if [[ -z "${P44B_SRC_DIR}" || ! -f "${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA"]]; then
+    echo "Nothing saved, cannot commit"
+    return 1
+  fi
+  read_config
+  pushd "${P44B_SRC_DIR}" >/dev/null
+  git add -A "${P44B_SRC_DIR}"
+  git commit -m "${VERSION_TAG}"
   popd >/dev/null
 }
+
+# tag the current commit with a version tag
+p44b_tagversion() {
+  if [[ $# -ne 0 ]]; then
+    p44b_usage
+    return 1
+  fi
+  if [[ -z "${P44B_SRC_DIR}" || ! -f "${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA"]]; then
+    echo "Nothing saved, cannot tag"
+    return 1
+  fi
+  read_config
+  pushd "${P44B_SRC_DIR}" >/dev/null
+  git tag "${VERSION_TAG}"
+  popd >/dev/null
+}
+
+
 
 
 # display status
@@ -201,11 +329,13 @@ p44b_status() {
 
 # usage
 p44b_usage() {
-  echo "usage: ${SCRIPTNAME} status"
-  echo "   or: ${SCRIPTNAME} init <${ALIAS} source dir>"
-  echo "   or: ${SCRIPTNAME} cleanup"
-  echo "   or: ${SCRIPTNAME} target <target>"
-  echo "   or: ${SCRIPTNAME} save"
+  echo "usage: ${SCRIPTNAME} status              - show status"
+  echo "   or: ${SCRIPTNAME} init <srcdir>       - initialize buildroot from a ${ALIAS} source directory"
+  echo "   or: ${SCRIPTNAME} cleanup             - clean up"
+  echo "   or: ${SCRIPTNAME} target <target>     - switch to specified target configuration"
+  echo "   or: ${SCRIPTNAME} save                - save current build's SHAs of buildroot and tracked packages"
+  echo "   or: ${SCRIPTNAME} commitversion       - commit the currently saved version to the feed the ${ALIAS} source directory is in"
+  echo "   or: ${SCRIPTNAME} tagversion          - tag the currently saved and committed version"
 }
 
 
@@ -231,6 +361,12 @@ case ${COMMAND} in
     ;;
   "save")
     p44b_save "$@"
+    ;;
+  "commitversion")
+    p44b_commitversion "$@"
+    ;;
+  "tagversion")
+    p44b_tagversion "$@"
     ;;
   *)
     echo "Unknown subcommand '${COMMAND}'"
