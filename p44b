@@ -34,6 +34,7 @@ fi
 PATCHES_DIR="lede-patches"
 CONFIGS_DIR="configs"
 TRACKING_DIR="tracking"
+SCRIPTS_DIR="scripts"
 
 
 read_config()
@@ -114,7 +115,8 @@ p44b_cleanup() {
   # Cleanup buildroot
   # - make sure patches are removed
   pushd "${BUILDROOT}" >/dev/null
-  quilt pop -a
+  quilt pop -af
+  git reset --hard
   popd >/dev/null
   # - remove the quilt working dir
   rm -rf "${BUILDROOT}/.pc"
@@ -347,15 +349,32 @@ p44b_status() {
 }
 
 
+p44b_run() {
+  if [[ $# -lt 1 ]]; then
+    p44b_usage
+    return 1
+  fi
+  local SCRIPT="${P44B_SRC_DIR}/${SCRIPTS_DIR}/$1"
+  if [ ! -f "${SCRIPT}" ]; then
+    echo "no script '$1' in ${ALIAS} script folder"
+    return 1
+  fi
+  shift 1
+  # run it
+  $SCRIPT "$@"
+}
+
+
 # usage
 p44b_usage() {
-  echo "usage: ${SCRIPTNAME} status              - show status"
-  echo "   or: ${SCRIPTNAME} init <srcdir>       - initialize buildroot from a ${ALIAS} source directory"
-  echo "   or: ${SCRIPTNAME} cleanup             - clean up"
-  echo "   or: ${SCRIPTNAME} target <target>     - switch to specified target configuration"
-  echo "   or: ${SCRIPTNAME} save                - save current build's SHAs of buildroot and tracked packages"
-  echo "   or: ${SCRIPTNAME} commitversion       - commit the currently saved version to the feed the ${ALIAS} source directory is in"
-  echo "   or: ${SCRIPTNAME} tagversion          - tag the currently saved and committed version"
+  echo "usage: ${SCRIPTNAME} status                    - show status"
+  echo "   or: ${SCRIPTNAME} init <srcdir>             - initialize buildroot from a ${ALIAS} source directory"
+  echo "   or: ${SCRIPTNAME} cleanup                   - clean up buildroot"
+  echo "   or: ${SCRIPTNAME} target <target>           - switch to specified target configuration"
+  echo "   or: ${SCRIPTNAME} save                      - save current build's SHAs of buildroot and tracked packages"
+  echo "   or: ${SCRIPTNAME} commitversion             - commit the currently saved version to the feed the ${ALIAS} source directory is in"
+  echo "   or: ${SCRIPTNAME} tagversion                - tag the currently saved and committed version"
+  echo "   or: ${SCRIPTNAME} run <script> [<args>...]  - run script from ${ALIAS} scripts folder"
 }
 
 
@@ -387,6 +406,9 @@ case ${COMMAND} in
     ;;
   "tagversion")
     p44b_tagversion "$@"
+    ;;
+  "run")
+    p44b_run "$@"
     ;;
   *)
     echo "Unknown subcommand '${COMMAND}'"
