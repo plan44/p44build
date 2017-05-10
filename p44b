@@ -166,6 +166,9 @@ p44b_target() {
     git checkout "${BUILDROOT_CHECKOUT}"
     # apply the patches
     quilt push -a
+    # update the indices
+    rm -rf ${BUILDROOT}/tmp 2>/dev/null
+    ./scripts/feeds update -i
     # copy the config and expand
     cp "${DIFFCONFIG}" "${BUILDROOT}/.config"
     make defconfig
