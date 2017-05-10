@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # p44b: host script for managing LEDE based product builds
+shopt -s extglob
 
 # must always be started from buildroot
 BUILDROOT="$(pwd -P)"
@@ -198,13 +199,31 @@ p44b_save() {
   pushd ${BUILDROOT} >/dev/null
   # SHA and branch of buildroot
   mkdir "${P44B_SRC_DIR}/${TRACKING_DIR}" 2>/dev/null
-  git rev-parse HEAD >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA"
-  git rev-parse --abbrev-ref HEAD >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_VERS"
+  local GITREV=$(git rev-parse HEAD)
+  local GITVERS=$(git rev-parse --abbrev-ref HEAD)
+  echo "builroot: built from ${GITVERS} (SHA:${GITREV}"
+  echo "${GITREV}" >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA"
+  echo "${GITVERS}" >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_VERS"
   # diffconfig for current target
   local CONFIGDIR="${P44B_SRC_DIR}/${CONFIGS_DIR}"
   ./scripts/diffconfig.sh >"${CONFIGDIR}/diffconfig-${TARGET_ID}"
   # complete config for reference purposes
   cp .config "${CONFIGDIR}/.config-${TARGET_ID}"
+  popd >/dev/null
+  # Capture state of feeds
+  echo "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_VERS"
+  echo "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_SHA"
+  pushd "${BUILDROOT}/feeds" >/dev/null
+  for FEED in !(*.*) ; do
+    pushd "${FEED}" >/dev/null
+    local GITURL=$(git remote show origin | sed -ne "/Fetch URL:/s/ *Fetch URL: //p")
+    local GITREV=$(git rev-parse HEAD)
+    local GITVERS=$(git rev-parse --abbrev-ref HEAD)
+    echo "feed ${FEED}: origin at ${GITURL}:${GITVERS} (SHA:${GITREV})"
+    echo "${FEED} ${GITURL}:${GITVERS}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_VERS"
+    echo "${FEED} ${GITURL}:${GITREV}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_SHA"
+    popd >/dev/null
+  done
   popd >/dev/null
   # Track package source SHAs/versions
   read_config
@@ -263,7 +282,7 @@ p44b_save() {
           echo "*** ${PKGNAMEVERS}: SHA recorded in build (${GITREV}) differs from git ls-remote (${REV})"
         else
           # checks ok, now record
-          echo "${PKGNAMEVERS}: was built from ${GITURL}:${GITVERS} (SHA:${GITREV})"
+          echo "package ${PKGNAMEVERS}: was built from ${GITURL}:${GITVERS} (SHA:${GITREV})"
           # - record fixed sha source
           echo "${PSPEC} ${GITURL}:${GITREV}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
           # - record version/branch source
@@ -302,6 +321,7 @@ p44b_commitversion() {
     git add -A "${P44B_SRC_DIR}"
     git commit -m "${VERSION_TAG}"
     popd >/dev/null
+    echo "# You might want to amend this commit with changes outside the ${ALIAS} directory"
   fi
 }
 
@@ -365,6 +385,11 @@ p44b_run() {
 }
 
 
+p44b_test() {
+  echo "dummy"
+}
+
+
 # usage
 p44b_usage() {
   echo "usage: ${SCRIPTNAME} status                    - show status"
@@ -409,6 +434,9 @@ case ${COMMAND} in
     ;;
   "run")
     p44b_run "$@"
+    ;;
+  "test")
+    p44b_test "$@"
     ;;
   *)
     echo "Unknown subcommand '${COMMAND}'"
