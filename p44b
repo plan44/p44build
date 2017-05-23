@@ -143,6 +143,14 @@ p44b_cleanup() {
 # - applies all buildroot patches
 # - copies target's diffconfig to .config and expands it with make defconfig
 p44b_target() {
+  if [[ $# -eq 0 ]]; then
+    # list targets
+    TARGETS="${P44B_SRC_DIR}/${CONFIGS_DIR}/diffconfig"*
+    for TG in ${TARGETS}; do
+      echo "- ${TG##*/diffconfig-}"
+    done
+    return 0
+  fi
   if [[ $# -ne 1 ]]; then
     p44b_usage
     return 1
@@ -395,7 +403,7 @@ p44b_usage() {
   echo "usage: ${SCRIPTNAME} status                    - show status"
   echo "   or: ${SCRIPTNAME} init <srcdir>             - initialize buildroot from a ${ALIAS} source directory"
   echo "   or: ${SCRIPTNAME} cleanup                   - clean up buildroot"
-  echo "   or: ${SCRIPTNAME} target <target>           - switch to specified target configuration"
+  echo "   or: ${SCRIPTNAME} target [<target>]         - list targets or switch to specified target configuration"
   echo "   or: ${SCRIPTNAME} save                      - save current build's SHAs of buildroot and tracked packages"
   echo "   or: ${SCRIPTNAME} commitversion             - commit the currently saved version to the feed the ${ALIAS} source directory is in"
   echo "   or: ${SCRIPTNAME} tagversion                - tag the currently saved and committed version"
