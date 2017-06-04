@@ -370,7 +370,13 @@ p44b_status() {
   fi
   if [ ! -z "${P44B_SRC_DIR}" ]; then
     echo "Initialized with ${ALIAS} sources at '${P44B_SRC_DIR}'"
-    echo "Current target: '${TARGET_ID}'"
+    echo "Current target  : '${TARGET_ID}'"
+    read_config
+    echo "Distribution    : ${CONFIG_VERSION_DIST}"
+    echo "Product         : ${CONFIG_VERSION_PRODUCT}"
+    echo "HW Revision     : ${CONFIG_VERSION_HWREV}"
+    echo "Current version : ${CONFIG_VERSION_NUMBER}"
+    echo "Current feed    : ${CONFIG_P44_FEED_NAME}"
   else
     echo "This tree is not initialized for ${ALIAS} yet"
   fi
