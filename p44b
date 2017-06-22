@@ -44,9 +44,9 @@ read_config()
   # import .config:
   source "${P44B_SRC_DIR}/${CONFIGS_DIR}/.config-${TARGET_ID}" 2>/dev/null
   # define derived vars
-  VERSION_TAG="${TARGET_ID}_${CONFIG_VERSION_NUMBER}"
+  VERSION_TAG="${CONFIG_VERSION_NUMBER}/${TARGET_ID}"
   if [ ! -z "${CONFIG_P44_FEED_NAME}" ]; then
-    VERSION_TAG="${VERSION_TAG}_${CONFIG_P44_FEED_NAME}"
+    VERSION_TAG="${CONFIG_P44_FEED_NAME}/${VERSION_TAG}"
   fi
   popd >/dev/null
 }
