@@ -44,10 +44,11 @@ read_config()
   # import .config:
   source "${P44B_SRC_DIR}/${CONFIGS_DIR}/.config-${TARGET_ID}" 2>/dev/null
   # define derived vars
-  VERSION_TAG="${CONFIG_VERSION_NUMBER}/${TARGET_ID}"
+  VERSION_TAG="${CONFIG_VERSION_NUMBER}"
   if [ ! -z "${CONFIG_P44_FEED_NAME}" ]; then
     VERSION_TAG="${CONFIG_P44_FEED_NAME}/${VERSION_TAG}"
   fi
+  VERSION_TAG="${CONFIG_VERSION_PRODUCT}/${VERSION_TAG}/${TARGET_ID}"
   popd >/dev/null
 }
 
@@ -298,8 +299,8 @@ p44b_save() {
           # - create entry for tagging source repositories in tagging script
           echo "git clone --depth 1 --no-checkout --single-branch --branch ${GITVERS} ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
           echo "pushd ${PKG_NAME}" >>"${PUSHTAGS}"
-          echo "git tag ${VERSION_TAG} ${GITREV}" >>"${PUSHTAGS}"
-          echo "git push origin ${VERSION_TAG}" >>"${PUSHTAGS}"
+          echo "git tag -f ${VERSION_TAG} ${GITREV}" >>"${PUSHTAGS}"
+          echo "git push -f origin ${VERSION_TAG}" >>"${PUSHTAGS}"
           echo "popd" >>"${PUSHTAGS}"
           chmod a+x "${PUSHTAGS}"
         fi
@@ -352,7 +353,7 @@ p44b_tagversion() {
   else
     echo "Tagging: ${VERSION_TAG}"
     pushd "${P44B_SRC_DIR}" >/dev/null
-    git tag "${VERSION_TAG}"
+    git tag -f "${VERSION_TAG}"
     popd >/dev/null
     echo "# You might also want to tag tracked packages by executing:"
     echo "${P44B_SRC_DIR}/tracking/pushtags.sh"
