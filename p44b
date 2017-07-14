@@ -194,8 +194,9 @@ p44b_target() {
 # saves the current build state
 # - SHA of LEDE
 # - diffconfig for current target
-# - TODO: SHA of feeds
-# - TODO: SHA of specified packages
+# - SHA of feeds
+# - SHA of specified packages
+# - script for installing stuff from feeds (note: feeds.conf.default is made of LEDE+patches)
 p44b_save() {
   if [[ $# -ne 0 ]]; then
     p44b_usage
@@ -219,6 +220,18 @@ p44b_save() {
   # complete config for reference purposes
   cp .config "${CONFIGDIR}/.config-${TARGET_ID}"
   popd >/dev/null
+  # Capture installed packages from feeds (as a script that can be run to update feeds and install the packages)
+  local INSTPKGS="${P44B_SRC_DIR}/${TRACKING_DIR}/install_packages.sh"
+  echo "# Run this script to install all packages that were installed at the time of p44b save" >"${INSTPKGS}"
+  FEEDS=$(find ${BUILDROOT}/package/feeds -type d -depth 1 -exec "echo" "{}" ";")
+  for FEED in ${FEEDS}; do
+    FEEDNAME=$(basename ${FEED})
+    pushd ${FEED}
+    echo "./scripts/feeds update ${FEEDNAME}" >>"${INSTPKGS}"
+    for INSTPNAME in *; do
+      echo "./scripts/feeds install -p ${FEEDNAME} ${INSTPNAME}" >>"${INSTPKGS}"
+    done
+  done;
   # Capture state of feeds
   echo "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_VERS"
   echo "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_SHA"
