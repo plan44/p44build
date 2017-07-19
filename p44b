@@ -135,7 +135,32 @@ p44b_cleanup() {
 }
 
 
-# Prepare the tree for a specific target
+# Prepare the tree
+# - removes current patches
+# - discards previous changes to the tree (if some are present, these will be stashed first)
+# - checks out the buildroot commit as recorded in $P44B_SRC_DIR/buildroot_checkout
+# - applies all buildroot patches
+p44b_prepare() {
+  # checkout the buildroot checkout
+  if [ -f "${P44B_SRC_DIR}/buildroot_checkout" ]; then
+    local BUILDROOT_CHECKOUT=$(cat "${P44B_SRC_DIR}/buildroot_checkout")
+    pushd ${BUILDROOT} >/dev/null
+    # remove patches that might be there
+    quilt pop -a
+    # stash just in case, to avoid loosing data
+    git stash
+    # switch to correct buildroot state
+    git reset --hard
+    git checkout "${BUILDROOT_CHECKOUT}"
+    # apply the patches
+    quilt push -a
+  else
+    echo "Warning: no buildroot_checkout (might want to use ${TRACKING_DIR}/buildroot_SHA or ${TRACKING_DIR}/buildroot_VERS)"
+  fi
+}
+
+
+# Configure for a specific target
 #
 # Does the following
 # - removes current patches
@@ -165,29 +190,14 @@ p44b_target() {
   # remember the target identifier
   TARGET_ID="${NEW_TARGET_ID}"
   echo -n "${TARGET_ID}" > "${P44B_STATE_DIR}/target_id"
-  # checkout the buildroot checkout
-  if [ -f "${P44B_SRC_DIR}/buildroot_checkout" ]; then
-    local BUILDROOT_CHECKOUT=$(cat "${P44B_SRC_DIR}/buildroot_checkout")
-    pushd ${BUILDROOT} >/dev/null
-    # remove patches that might be there
-    quilt pop -a
-    # stash just in case, to avoid loosing data
-    git stash
-    # switch to correct buildroot state
-    git reset --hard
-    git checkout "${BUILDROOT_CHECKOUT}"
-    # apply the patches
-    quilt push -a
-    # update the indices
-    rm -rf ${BUILDROOT}/tmp 2>/dev/null
-    ./scripts/feeds update -i
-    # copy the config and expand
-    cp "${DIFFCONFIG}" "${BUILDROOT}/.config"
-    make defconfig
-    popd >/dev/null
-  else
-    echo "Warning: no buildroot_checkout (might want to use ${TRACKING_DIR}/buildroot_SHA or ${TRACKING_DIR}/buildroot_VERS)"
-  fi
+  # update the package indices
+  rm -rf ${BUILDROOT}/tmp 2>/dev/null
+  pushd ${BUILDROOT} >/dev/null
+  ./scripts/feeds update -i
+  # copy the config and expand
+  cp "${DIFFCONFIG}" "${BUILDROOT}/.config"
+  make defconfig
+  popd >/dev/null
 }
 
 
@@ -423,6 +433,7 @@ p44b_usage() {
   echo "usage: ${SCRIPTNAME} status                    - show status"
   echo "   or: ${SCRIPTNAME} init <srcdir>             - initialize buildroot from a ${ALIAS} source directory"
   echo "   or: ${SCRIPTNAME} cleanup                   - clean up buildroot"
+  echo "   or: ${SCRIPTNAME} prepare                   - prepare (patch) tree from ${ALIAS}"
   echo "   or: ${SCRIPTNAME} target [<target>]         - list targets or switch to specified target configuration"
   echo "   or: ${SCRIPTNAME} save                      - save current build's SHAs of buildroot and tracked packages"
   echo "   or: ${SCRIPTNAME} commitversion             - commit the currently saved version to the feed the ${ALIAS} source directory is in"
@@ -447,6 +458,9 @@ case ${COMMAND} in
     ;;
   "cleanup")
     p44b_cleanup "$@"
+    ;;
+  "prepare")
+    p44b_prepare "$@"
     ;;
   "target")
     p44b_target "$@"
