@@ -160,6 +160,19 @@ p44b_prepare() {
 }
 
 
+# Install those packages that were present at last save
+# - if last save has created a install_packages.sh
+p44b_instpkg() {
+  # checkout the buildroot checkout
+  if [ -f "${P44B_SRC_DIR}/${TRACKING_DIR}/install_packages.sh" ]; then
+    bash ${P44B_SRC_DIR}/${TRACKING_DIR}/install_packages.sh
+  else
+    echo "Warning: no install_packages.sh found. You might want to install all packages instead with ./scripts/feeds install -a"
+  fi
+}
+
+
+
 # Configure for a specific target
 #
 # Does the following
@@ -433,7 +446,8 @@ p44b_usage() {
   echo "usage: ${SCRIPTNAME} status                    - show status"
   echo "   or: ${SCRIPTNAME} init <srcdir>             - initialize buildroot from a ${ALIAS} source directory"
   echo "   or: ${SCRIPTNAME} cleanup                   - clean up buildroot"
-  echo "   or: ${SCRIPTNAME} prepare                   - prepare (patch) tree from ${ALIAS}"
+  echo "   or: ${SCRIPTNAME} prepare                   - prepare (patch) tree from ${ALIAS} info"
+  echo "   or: ${SCRIPTNAME} instpkg                   - install those packages from feeds that were present at last ${ALIAS} save"
   echo "   or: ${SCRIPTNAME} target [<target>]         - list targets or switch to specified target configuration"
   echo "   or: ${SCRIPTNAME} save                      - save current build's SHAs of buildroot and tracked packages"
   echo "   or: ${SCRIPTNAME} commitversion             - commit the currently saved version to the feed the ${ALIAS} source directory is in"
@@ -461,6 +475,9 @@ case ${COMMAND} in
     ;;
   "prepare")
     p44b_prepare "$@"
+    ;;
+  "instpkg")
+    p44b_instpkg "$@"
     ;;
   "target")
     p44b_target "$@"
