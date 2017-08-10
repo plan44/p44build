@@ -238,8 +238,8 @@ p44b_save() {
   echo "builroot: built from ${GITVERS} (SHA:${GITREV}"
   echo "${GITREV}" >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA"
   echo "${GITVERS}" >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_VERS"
-  # current feeds.conf.default
-  cp feeds.conf.default "${P44B_SRC_DIR}/${TRACKING_DIR}/feeds.conf.default-snapshot"
+  # current feeds.conf
+  cp feeds.conf "${P44B_SRC_DIR}/${TRACKING_DIR}/feeds.conf-snapshot"
   # diffconfig for current target
   local CONFIGDIR="${P44B_SRC_DIR}/${CONFIGS_DIR}"
   ./scripts/diffconfig.sh >"${CONFIGDIR}/diffconfig-${TARGET_ID}"
