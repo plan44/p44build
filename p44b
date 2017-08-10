@@ -272,7 +272,10 @@ p44b_save() {
   popd >/dev/null
   # Track package source SHAs/versions
   read_config
-  local BUILD_DIR="${BUILDROOT}/build_dir/target-${CONFIG_TARGET_ARCH_PACKAGES}_${CONFIG_LIBC}-${CONFIG_LIBC_VERSION}"
+  local BUILD_DIR="${BUILDROOT}/build_dir/target-${CONFIG_TARGET_ARCH_PACKAGES}_${CONFIG_LIBC}"
+  if [ ! -z "${CONFIG_LIBC_VERSION}" ]; then
+    BUILD_DIR="${BUILD_DIR}-${CONFIG_LIBC_VERSION}"
+  fi
   # go through tracked packages
   if [ ! -f "${P44B_SRC_DIR}/tracked_packages" ]; then
     echo "no tracked_packages file -> nothing to track"
@@ -305,7 +308,7 @@ p44b_save() {
       local PD=${PD//\$\(/\$\{}
       local PD=${PD//\)/\}}
       eval PKGBUILDDIR="$PD"
-      #echo "PKG_NAME=$PKG_NAME, PKG_VERSION=$PKG_VERSION, PKG_SOURCE_VERSION=$PKG_SOURCE_VERSION"
+      #echo "PKG_NAME=$PKG_NAME, PKG_VERSION=$PKG_VERSION, PKG_SOURCE_VERSION=$PKG_SOURCE_VERSION, PD=$PD"
       #echo "package build dir: ${PKGBUILDDIR}"
       # collect info from build
       if [ ! -d "${PKGBUILDDIR}" ]; then
