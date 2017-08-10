@@ -252,11 +252,12 @@ p44b_save() {
   FEEDS=$(find ${BUILDROOT}/package/feeds -type d -depth 1 -exec "echo" "{}" ";")
   for FEED in ${FEEDS}; do
     FEEDNAME=$(basename ${FEED})
-    pushd ${FEED}
+    pushd ${FEED} >/dev/null
     echo "./scripts/feeds update ${FEEDNAME}" >>"${INSTPKGS}"
     for INSTPNAME in *; do
       echo "./scripts/feeds install -p ${FEEDNAME} ${INSTPNAME}" >>"${INSTPKGS}"
     done
+    popd >/dev/null
   done;
   # Capture state of feeds
   echo "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_VERS"
