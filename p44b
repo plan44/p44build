@@ -255,7 +255,12 @@ p44b_save() {
     pushd ${FEED} >/dev/null
     echo "./scripts/feeds update ${FEEDNAME}" >>"${INSTPKGS}"
     for INSTPNAME in *; do
-      echo "./scripts/feeds install -p ${FEEDNAME} ${INSTPNAME}" >>"${INSTPKGS}"
+      local INSTPPREFIX=""
+      grep -q "KernelPackage/" "${INSTPNAME}/Makefile"
+      if [[ $? -eq 0 ]]; then
+        INSTPPREFIX="kmod-"
+      fi
+      echo "./scripts/feeds install -p ${FEEDNAME} ${INSTPPREFIX}${INSTPNAME}" >>"${INSTPKGS}"
     done
     popd >/dev/null
   done;
