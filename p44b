@@ -154,6 +154,8 @@ p44b_prepare() {
     git checkout "${BUILDROOT_CHECKOUT}"
     # apply the patches
     quilt push -a
+    # clean feeds from MacOS folder state files
+    find ${BUILDROOT}/feeds -name .DS_Store -delete
   else
     echo "Warning: no buildroot_checkout (might want to use ${TRACKING_DIR}/buildroot_SHA or ${TRACKING_DIR}/buildroot_VERS)"
   fi
@@ -231,6 +233,8 @@ p44b_save() {
     return 1
   fi
   pushd ${BUILDROOT} >/dev/null
+  # clean feeds from MacOS folder state files
+  find ${BUILDROOT}/feeds -name .DS_Store -delete
   # SHA and branch of buildroot
   mkdir "${P44B_SRC_DIR}/${TRACKING_DIR}" 2>/dev/null
   local GITREV=$(git rev-parse HEAD)
@@ -373,13 +377,14 @@ p44b_commitversion() {
   if [[ -z "${VERSION_TAG}" ]]; then
     echo ".config does not contain version information"
     return 1
-  else
-    pushd "${P44B_SRC_DIR}" >/dev/null
-    git add -A "${P44B_SRC_DIR}"
-    git commit -m "${VERSION_TAG}"
-    popd >/dev/null
-    echo "# You might want to amend this commit with changes outside the ${ALIAS} directory"
   fi
+  # clean feeds from MacOS folder state files
+  find ${BUILDROOT}/feeds -name .DS_Store -delete
+  pushd "${P44B_SRC_DIR}" >/dev/null
+  git add -A "${P44B_SRC_DIR}"
+  git commit -m "${VERSION_TAG}"
+  popd >/dev/null
+  echo "# You might want to amend this commit with changes outside the ${ALIAS} directory"
 }
 
 
