@@ -420,10 +420,11 @@ p44b_tagversion() {
 
 # push the current feed's master and the version tag to origin
 p44b_pushversion() {
-  if [[ $# -ne 0 ]]; then
+  if [[ $# -ne 1 ]]; then
     p44b_usage
     return 1
   fi
+  local REMOTE="$1"
   if [[ -z "${P44B_SRC_DIR}" || ! -f "${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA" ]]; then
     echo "Nothing saved, cannot push"
     return 1
@@ -433,9 +434,11 @@ p44b_pushversion() {
     echo ".config does not contain version information"
     return 1
   else
-    echo "Pushing master and tag ${VERSION_TAG} -> origin"
+    # detect branch
     pushd "${P44B_SRC_DIR}" >/dev/null
-    git push origin master "${VERSION_TAG}"
+    local BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    echo "Pushing branch '${BRANCH}' and tag '${VERSION_TAG}' -> remote '${REMOTE}'"
+    git push ${REMOTE} ${BRANCH} "${VERSION_TAG}"
     popd >/dev/null
   fi
 }
@@ -496,7 +499,7 @@ p44b_usage() {
   echo "   or: ${SCRIPTNAME} save                      - save current build's SHAs of buildroot and tracked packages"
   echo "   or: ${SCRIPTNAME} commitversion             - commit the currently saved version to the feed the ${ALIAS} source directory is in"
   echo "   or: ${SCRIPTNAME} tagversion                - tag the currently saved and committed version"
-  echo "   or: ${SCRIPTNAME} pushversion               - push the current feed's master and the version tag to origin"
+  echo "   or: ${SCRIPTNAME} pushversion <remote>      - push the currently checked out branch and the version tag to remote"
   echo "   or: ${SCRIPTNAME} run <script> [<args>...]  - run script from ${ALIAS} scripts folder"
 }
 
