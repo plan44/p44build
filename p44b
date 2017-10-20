@@ -256,18 +256,22 @@ p44b_save() {
   FEEDS=$(find ${BUILDROOT}/package/feeds -type d -depth 1 -exec "echo" "{}" ";")
   for FEED in ${FEEDS}; do
     FEEDNAME=$(basename ${FEED})
+    #echo "--- feed=${FEEDNAME} dir=${FEED}"
     pushd ${FEED} >/dev/null
     echo "./scripts/feeds update ${FEEDNAME}" >>"${INSTPKGS}"
-    for INSTPNAME in *; do
-      local INSTPPREFIX=""
-      grep -q "KernelPackage/" "${INSTPNAME}/Makefile"
-      if [[ $? -eq 0 ]]; then
-        INSTPPREFIX="kmod-"
-      fi
-      echo "./scripts/feeds install -p ${FEEDNAME} ${INSTPPREFIX}${INSTPNAME}" >>"${INSTPKGS}"
+    for INSTPDIR in *; do
+      #echo "---   instpdir=${INSTPDIR}"
+      local CMNT=""
+      local INSTPNAMES=$(sed -E -n -e "/^Source-Makefile: +feeds\/${FEEDNAME}.*\/${INSTPDIR}\/Makefile/,/^Source-Makefile:/s/^Package: +([-a-zA-Z_]+)/\1/p" ${BUILDROOT}/feeds/${FEEDNAME}.index)
+      for INSTPNAME in ${INSTPNAMES}; do
+        #echo "---     instpname=${INSTPNAME}"
+        echo "${CMNT}./scripts/feeds install -p ${FEEDNAME} ${INSTPNAME}" >>"${INSTPKGS}"
+        # installing one of the packages from a makefile is sufficient, show but comment out the other packages made available as well
+        CMNT="#"
+      done
     done
     popd >/dev/null
-  done;
+  done
   # Capture state of feeds
   echo "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_VERS"
   echo "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_SHA"
