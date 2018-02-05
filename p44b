@@ -49,6 +49,10 @@ read_config()
     VERSION_TAG="${CONFIG_P44_FEED_NAME}/${VERSION_TAG}"
   fi
   VERSION_TAG="${CONFIG_VERSION_PRODUCT}/${VERSION_TAG}/${TARGET_ID}"
+  MUSL_SUFFIX=""
+  if [[ "${CONFIG_TARGET_SUFFIX#muslgnu}" == "eabi" ]]; then
+    MUSL_SUFFIX="_eabi"
+  fi
   popd >/dev/null
 }
 
@@ -239,7 +243,7 @@ p44b_save() {
   mkdir "${P44B_SRC_DIR}/${TRACKING_DIR}" 2>/dev/null
   local GITREV=$(git rev-parse HEAD)
   local GITVERS=$(git rev-parse --abbrev-ref HEAD)
-  echo "builroot: built from ${GITVERS} (SHA:${GITREV}"
+  echo "builroot: built from ${GITVERS} (SHA:${GITREV})"
   echo "${GITREV}" >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA"
   echo "${GITVERS}" >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_VERS"
   # current feeds.conf
@@ -289,9 +293,9 @@ p44b_save() {
   popd >/dev/null
   # Track package source SHAs/versions
   read_config
-  local BUILD_DIR="${BUILDROOT}/build_dir/target-${CONFIG_TARGET_ARCH_PACKAGES}_${CONFIG_LIBC}"
+  local BUILD_DIR="${BUILDROOT}/build_dir/target-${CONFIG_ARCH}_${CONFIG_CPU_TYPE}_${CONFIG_LIBC}"
   if [ ! -z "${CONFIG_LIBC_VERSION}" ]; then
-    BUILD_DIR="${BUILD_DIR}-${CONFIG_LIBC_VERSION}"
+    BUILD_DIR="${BUILD_DIR}-${CONFIG_LIBC_VERSION}${MUSL_SUFFIX}"
   fi
   # go through tracked packages
   if [ ! -f "${P44B_SRC_DIR}/tracked_packages" ]; then
