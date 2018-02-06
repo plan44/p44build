@@ -42,7 +42,12 @@ read_config()
 {
   pushd ${BUILDROOT} >/dev/null
   # import .config:
-  source "${P44B_SRC_DIR}/${CONFIGS_DIR}/.config-${TARGET_ID}" 2>/dev/null
+  if [[ $# -eq 0 ]]; then
+    local DOT_CONFIG_LOCATION="${P44B_SRC_DIR}/${CONFIGS_DIR}/.config-${TARGET_ID}"
+  else
+    local DOT_CONFIG_LOCATION="${BUILDROOT}/$1"
+  fi
+  source "${DOT_CONFIG_LOCATION}" 2>/dev/null
   # define derived vars
   VERSION_TAG="${CONFIG_VERSION_NUMBER}"
   if [ ! -z "${CONFIG_P44_FEED_NAME}" ]; then
@@ -53,6 +58,12 @@ read_config()
   if [[ "${CONFIG_TARGET_SUFFIX#muslgnu}" == "eabi" ]]; then
     MUSL_SUFFIX="_eabi"
   fi
+  BUILD_DIR="${BUILDROOT}/build_dir/target-${CONFIG_ARCH}_${CONFIG_CPU_TYPE}_${CONFIG_LIBC}"
+  if [ ! -z "${CONFIG_LIBC_VERSION}" ]; then
+    BUILD_DIR="${BUILD_DIR}-${CONFIG_LIBC_VERSION}${MUSL_SUFFIX}"
+  fi
+  IMG_DIST_NAME="${CONFIG_VERSION_DIST}"
+  IMG_DIST_NAME_LC=$(echo "$IMG_DIST_NAME" | awk '{print tolower($0)}')
   popd >/dev/null
 }
 
@@ -293,10 +304,6 @@ p44b_save() {
   popd >/dev/null
   # Track package source SHAs/versions
   read_config
-  local BUILD_DIR="${BUILDROOT}/build_dir/target-${CONFIG_ARCH}_${CONFIG_CPU_TYPE}_${CONFIG_LIBC}"
-  if [ ! -z "${CONFIG_LIBC_VERSION}" ]; then
-    BUILD_DIR="${BUILD_DIR}-${CONFIG_LIBC_VERSION}${MUSL_SUFFIX}"
-  fi
   # go through tracked packages
   if [ ! -f "${P44B_SRC_DIR}/tracked_packages" ]; then
     echo "no tracked_packages file -> nothing to track"
@@ -459,12 +466,14 @@ p44b_status() {
   if [ ! -z "${P44B_SRC_DIR}" ]; then
     echo "Initialized with ${ALIAS} sources at '${P44B_SRC_DIR}'"
     echo "Current target  : '${TARGET_ID}'"
-    read_config
+    read_config ".config" # current settings, not saved ones
     echo "Distribution    : ${CONFIG_VERSION_DIST}"
     echo "Product         : ${CONFIG_VERSION_PRODUCT}"
     echo "HW Revision     : ${CONFIG_VERSION_HWREV}"
     echo "Current version : ${CONFIG_VERSION_NUMBER}"
     echo "Current feed    : ${CONFIG_P44_FEED_NAME}"
+    echo "Build dir       : ${BUILD_DIR}"
+    echo "target host     : ${TARGET_HOST}"
   else
     echo "This tree is not initialized for ${ALIAS} yet"
   fi
@@ -487,6 +496,77 @@ p44b_run() {
 }
 
 
+p44b_send() {
+  if [[ -z "${TARGET_HOST}" ]]; then
+    echo "Need to define TARGET_HOST shell variable"
+    return 1
+  fi
+  if [[ $# -eq 0 ]]; then
+    # default to current image
+    read_config ".config" # current settings, not saved ones
+    local SRCIMGS=$(ls -1t ${BUILDROOT}/bin/targets/${CONFIG_TARGET_BOARD}/${CONFIG_TARGET_SUBTARGET}/${IMG_DIST_NAME_LC}-${CONFIG_VERSION_NUMBER}*-${CONFIG_TARGET_BOARD}-${CONFIG_TARGET_SUBTARGET}-${CONFIG_TARGET_PROFILE##DEVICE_}-*);
+    set -- $SRCIMGS
+    local SRCFILE=$1
+  elif [[ $# -eq 1 ]]; then
+    local SRCFILE=$1
+  else
+    p44b_usage
+    return 1
+  fi
+  echo "# Sending: ${SRCFILE} to ${TARGET_HOST}:/tmp"
+  echo "scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ${SRCFILE} root@${TARGET_HOST}:/tmp"
+  scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "${SRCFILE}" "root@${TARGET_HOST}:/tmp"
+  echo "...done"
+}
+
+
+p44b_get() {
+  if [[ -z "${TARGET_HOST}" ]]; then
+    echo "Need to define TARGET_HOST shell variable"
+    return 1
+  fi
+  if [[ $# -lt 1 || $# -gt 2 ]]; then
+    p44b_usage
+    return 1
+  fi
+  SRCFILE="$1"
+  if [[ $# -eq 1 ]]; then
+    local DESTDIR="/tmp"
+  else
+    local DESTDIR="$2"
+  fi
+  if [[ ! -d "${DESTDIR}" ]]; then
+    echo "${DESTDIR} is not a directory"
+    return 1
+  fi
+  echo "# Getting: ${TARGET_HOST}:${SRCFILE} to ${DESTDIR}"
+  echo "scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no root@${TARGET_HOST}:${SRCFILE} ${DESTDIR}"
+  scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "root@${TARGET_HOST}:${SRCFILE}" "${DESTDIR}"
+  echo "...done"
+}
+
+
+
+p44b_login() {
+  if [[ $# -eq 0 ]]; then
+    if [[ -z "${TARGET_HOST}" ]]; then
+      echo "Specify host as parameter or define TARGET_HOST shell variable"
+      return 1
+    fi
+    local HOST="${TARGET_HOST}"
+  elif [[ $# -eq 1 ]]; then
+    local HOST="$1"
+  else
+    p44b_usage
+    return 1
+  fi
+  echo "# connecting to ${HOST}:"
+  echo "ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no root@${TARGET_HOST}"
+  ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no root@${TARGET_HOST}
+}
+
+
+
 p44b_test() {
   echo "dummy"
 }
@@ -501,6 +581,9 @@ p44b_usage() {
   echo "   or: ${SCRIPTNAME} instpkg                   - install those packages from feeds that were present at last ${ALIAS} save"
   echo "   or: ${SCRIPTNAME} target [<target>]         - list targets or switch to specified target configuration"
   echo "   or: ${SCRIPTNAME} save                      - save current build's SHAs of buildroot and tracked packages"
+  echo "   or: ${SCRIPTNAME} send [<file>]             - send <file> (default: built image for current target) to /tmp on $$TARGET_HOST via scp"
+  echo "   or: ${SCRIPTNAME} get <remote file> [<dir>] - get <remote file> to local <dir> (default: /tmp) from $$TARGET_HOST via scp"
+  echo "   or: ${SCRIPTNAME} login [<host>]            - connect to specified host or TARGET_HOST via ssh w/o identity checking"
   echo "   or: ${SCRIPTNAME} commitversion             - commit the currently saved version to the feed the ${ALIAS} source directory is in"
   echo "   or: ${SCRIPTNAME} tagversion                - tag the currently saved and committed version"
   echo "   or: ${SCRIPTNAME} pushversion <remote>      - push the currently checked out branch and the version tag to remote"
@@ -534,6 +617,15 @@ case ${COMMAND} in
   "target")
     p44b_target "$@"
     ;;
+  "send")
+    p44b_send "$@"
+    ;;
+  "get")
+    p44b_get "$@"
+    ;;
+  "login")
+    p44b_login "$@"
+    ;;
   "save")
     p44b_save "$@"
     ;;
@@ -558,6 +650,3 @@ case ${COMMAND} in
     exit 1
     ;;
 esac
-
-
-
