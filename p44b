@@ -228,6 +228,8 @@ p44b_target() {
   cp "${DIFFCONFIG}" "${BUILDROOT}/.config"
   make defconfig
   popd >/dev/null
+  # show the status
+  p44b_status
 }
 
 
