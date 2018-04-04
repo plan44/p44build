@@ -511,13 +511,17 @@ p44b_send() {
     local SRCFILE=$1
   elif [[ $# -eq 1 ]]; then
     local SRCFILE=$1
+    local TARGPATH='/tmp'
+  elif [[ $# -eq 2 ]]; then
+    local SRCFILE=$1
+    local TARGPATH=$2
   else
     p44b_usage
     return 1
   fi
-  echo "# Sending: ${SRCFILE} to ${TARGET_HOST}:/tmp"
-  echo "scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ${SRCFILE} root@${TARGET_HOST}:/tmp"
-  scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "${SRCFILE}" "root@${TARGET_HOST}:/tmp"
+  echo "# Sending: ${SRCFILE} to ${TARGET_HOST}:${TARGPATH}"
+  echo "scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ${SRCFILE} root@${TARGET_HOST}:${TARGPATH}"
+  scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "${SRCFILE}" "root@${TARGET_HOST}:${TARGPATH}"
   echo "...done"
 }
 
@@ -576,20 +580,20 @@ p44b_test() {
 
 # usage
 p44b_usage() {
-  echo "usage: ${SCRIPTNAME} status                    - show status"
-  echo "   or: ${SCRIPTNAME} init <srcdir>             - initialize buildroot from a ${ALIAS} source directory"
-  echo "   or: ${SCRIPTNAME} cleanup                   - clean up buildroot"
-  echo "   or: ${SCRIPTNAME} prepare                   - prepare (patch) tree from ${ALIAS} info"
-  echo "   or: ${SCRIPTNAME} instpkg                   - install those packages from feeds that were present at last ${ALIAS} save"
-  echo "   or: ${SCRIPTNAME} target [<target>]         - list targets or switch to specified target configuration"
-  echo "   or: ${SCRIPTNAME} save                      - save current build's SHAs of buildroot and tracked packages"
-  echo "   or: ${SCRIPTNAME} send [<file>]             - send <file> (default: built image for current target) to /tmp on \$TARGET_HOST via scp"
-  echo "   or: ${SCRIPTNAME} get <remote file> [<dir>] - get <remote file> to local <dir> (default: /tmp) from \$TARGET_HOST via scp"
-  echo "   or: ${SCRIPTNAME} login [<host>]            - connect to specified host or TARGET_HOST via ssh w/o identity checking"
-  echo "   or: ${SCRIPTNAME} commitversion             - commit the currently saved version to the feed the ${ALIAS} source directory is in"
-  echo "   or: ${SCRIPTNAME} tagversion                - tag the currently saved and committed version"
-  echo "   or: ${SCRIPTNAME} pushversion <remote>      - push the currently checked out branch and the version tag to remote"
-  echo "   or: ${SCRIPTNAME} run <script> [<args>...]  - run script from ${ALIAS} scripts folder"
+  echo "usage: ${SCRIPTNAME} status                         - show status"
+  echo "   or: ${SCRIPTNAME} init <srcdir>                  - initialize buildroot from a ${ALIAS} source directory"
+  echo "   or: ${SCRIPTNAME} cleanup                        - clean up buildroot"
+  echo "   or: ${SCRIPTNAME} prepare                        - prepare (patch) tree from ${ALIAS} info"
+  echo "   or: ${SCRIPTNAME} instpkg                        - install those packages from feeds that were present at last ${ALIAS} save"
+  echo "   or: ${SCRIPTNAME} target [<target>]              - list targets or switch to specified target configuration"
+  echo "   or: ${SCRIPTNAME} save                           - save current build's SHAs of buildroot and tracked packages"
+  echo "   or: ${SCRIPTNAME} send [<file> [<remote path>]]  - send <file> (default: built image for current target) to \$TARGET_HOST via scp (default path: /tmp)"
+  echo "   or: ${SCRIPTNAME} get <remote file> [<dir>]      - get <remote file> to local <dir> (default: /tmp) from \$TARGET_HOST via scp"
+  echo "   or: ${SCRIPTNAME} login [<host>]                 - connect to specified host or TARGET_HOST via ssh w/o identity checking"
+  echo "   or: ${SCRIPTNAME} commitversion                  - commit the currently saved version to the feed the ${ALIAS} source directory is in"
+  echo "   or: ${SCRIPTNAME} tagversion                     - tag the currently saved and committed version"
+  echo "   or: ${SCRIPTNAME} pushversion <remote>           - push the currently checked out branch and the version tag to remote"
+  echo "   or: ${SCRIPTNAME} run <script> [<args>...]       - run script from ${ALIAS} scripts folder"
 }
 
 
