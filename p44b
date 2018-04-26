@@ -512,9 +512,11 @@ p44b_save() {
           # vers is a ref (branch, tag) that can move -> get the SHA of that ref from the git source repo
           local R=$(git ls-remote "${PKG_SOURCE_URL}" "${PKG_SOURCE_VERSION}")
           local GITREV="${R%%[[:blank:]]*}"
+          local GITVERS="${PKG_SOURCE_VERSION}"
         else
           # vers is a SHA that cannot move, so no need to check with source repo
           local GITREV="${BUILDREV}"
+          local GITVERS=
         fi
         # consistency checks
         if [[ "${BUILDVERS}" != "${PKG_SOURCE_VERSION}" && "${BUILDREV}" != "${PKG_SOURCE_VERSION}" ]]; then
@@ -534,7 +536,12 @@ p44b_save() {
             echo "# ${PSPEC}: WARNING: There is no branch/tag at ${BUILDREV} we could clone from: cannot tag" >>"${PUSHTAGS}"
           else
             # - create entry for tagging source repositories in tagging script
-            echo "git clone --depth 1 --no-checkout --single-branch --branch ${BUILDVERS} ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
+            if [[ -n "${GITVERS}" ]]; then
+              echo "git clone --depth 1 --no-checkout --single-branch --branch ${BUILDVERS} ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
+            else
+              # we do not know which branch we need, just clone normally in full depth
+              echo "git clone --no-checkout ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
+            fi
             echo "pushd ${PKG_NAME}" >>"${PUSHTAGS}"
             echo "git tag -f ${VERSION_TAG} ${BUILDREV}" >>"${PUSHTAGS}"
             echo "git push -f origin ${VERSION_TAG}" >>"${PUSHTAGS}"
