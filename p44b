@@ -193,10 +193,8 @@ p44b_instpkg() {
 # Configure for a specific target
 #
 # Does the following
-# - removes current patches
-# - discards previous changes to the tree
-# - checks out the buildroot commit as recorded in $P44B_SRC_DIR/buildroot_checkout
-# - applies all buildroot patches
+# - cleans tmp/
+# - reindexes package feeds
 # - copies target's diffconfig to .config and expands it with make defconfig
 p44b_target() {
   if [[ $# -eq 0 ]]; then
@@ -233,9 +231,168 @@ p44b_target() {
 }
 
 
+# restores the current build state
+# - check only: SHA/version of LEDE
+# - feeds.conf
+# - SHA of feeds
+# - SHA of specified packages
+# - config for the current target
+p44b_restore() {
+  if [[ $# -lt 1 ]]; then
+    p44b_usage
+    return 1
+  fi
+  local BYSHA=0
+  local APPLY=0
+  local DO_ROOT=0
+  local DO_FEEDS=0
+  local DO_PACKAGES=0
+  local DO_TARGET=0
+  for OPT in $@ ; do
+    case "$OPT" in
+      "--sha") BYSHA=1;;
+      "--apply") APPLY=1;;
+      "root") DO_ROOT=1;;
+      "feeds") DO_FEEDS=1;;
+      "packages") DO_PACKAGES=1;;
+      "target") DO_TARGET=1;;
+      *) echo "unknown option $OPT"; return 1;;
+    esac
+  done
+  if [[ -z "${TARGET_ID}" || -z "${P44B_SRC_DIR}" ]]; then
+    echo "No target selected, cannot restore"
+    return 1
+  fi
+  # diffconfig for current target
+  local CONFIGDIR="${P44B_SRC_DIR}/${CONFIGS_DIR}"
+  # check if buildroot matches
+  if [[ ${DO_ROOT} -ne 0 ]]; then
+    pushd "${BUILDROOT}" >/dev/null
+    local CONFIGDIR="${P44B_SRC_DIR}/${CONFIGS_DIR}"
+    if [[ ${BYSHA} -ne 0 ]]; then
+      local CURRENT=$(git rev-parse HEAD)
+      local SAVED=$(cat "${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA")
+    else
+      local CURRENT=$(git rev-parse --abbrev-ref HEAD)
+      local SAVED=$(cat "${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_VERS")
+    fi
+    if [[ "${CURRENT}" != "${SAVED}" ]]; then
+      echo "Buildroot originally saved from was at '${SAVED}', but is now at '${CURRENT}'"
+      if [[ ${APPLY} -ne 0 ]]; then
+        echo "**** NOT automatically changing this -> manually checkout the correct buildroot commit"
+        return 1;
+      fi
+    fi
+    echo "Buildroot state is correct: '${CURRENT}'"
+    # current feeds.conf
+    if ! cmp -s "${P44B_SRC_DIR}/${TRACKING_DIR}/feeds.conf-snapshot" feeds.conf; then
+      if [[ ${APPLY} -ne 0 ]]; then
+        echo "feeds.conf has changed: moving original to feeds.conf_ORIG and putting new one in place"
+        mv feeds.conf "feeds.conf_ORIG_$(date +%Y-%m-%d_%H:%M:%S)"
+        cp "${P44B_SRC_DIR}/${TRACKING_DIR}/feeds.conf-snapshot" feeds.conf
+      else
+        echo "feeds.conf has changed:"
+        diff "${P44B_SRC_DIR}/${TRACKING_DIR}/feeds.conf-snapshot" feeds.conf
+        echo ""
+      fi
+    else
+      echo "feeds.conf is unchanged"
+    fi
+    popd >/dev/null
+  fi
+  # check feed states
+  if [[ ${DO_FEEDS} -ne 0 ]]; then
+    if [[ ${BYSHA} -ne 0 ]]; then
+      local FEEDSTATES="${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_SHA"
+    else
+      local FEEDSTATES="${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_VERS"
+    fi
+    while IFS='' read -r line || [[ -n "$line" ]]; do
+      if [[ "${line:0:1}" != "#" ]]; then
+        local FEED="${line/ *}"
+        local spec="${line:((${#FEED}+1))}"
+        local URL="${spec%:*}"
+        local SAVED="${spec:((${#URL}+1))}"
+        pushd "${BUILDROOT}/feeds/${FEED}" >/dev/null
+        if [[ ${BYSHA} -ne 0 ]]; then
+          local CURRENT=$(git rev-parse HEAD)
+        else
+          local CURRENT=$(git rev-parse --abbrev-ref HEAD)
+        fi
+        popd >/dev/null
+        if [[ "${CURRENT}" != "${SAVED}" ]]; then
+          echo "***** feed ${FEED} should be at '${SAVED}' but is at '${CURRENT}'"
+          if [[ ${APPLY} -ne 0 ]]; then
+            "pushd ${BUILDROOT}/feeds/${FEED}; git stash; git checkout ${SAVED}; popd"
+          else
+            echo "pushd ${BUILDROOT}/feeds/${FEED}; git stash; git checkout ${SAVED}; popd"
+          fi
+        fi
+      fi
+    done < "${FEEDSTATES}"
+  fi
+  # modify makefiles of tracked packages to point to saved versions
+  if [[ ${DO_PACKAGES} -ne 0 ]]; then
+    if [[ ${BYSHA} -ne 0 ]]; then
+      local PACKAGESTATES="${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
+    else
+      local PACKAGESTATES="${P44B_SRC_DIR}/${TRACKING_DIR}/packages_VERS"
+    fi
+    while IFS='' read -r line || [[ -n "$line" ]]; do
+      if [[ "${line:0:1}" != "#" ]]; then
+        local pspec="${line/ *}"
+        local FEED="${pspec/\/*}"
+        local PNAME="${pspec:((${#FEED}+1))}"
+        local spec="${line:((${#pspec}+1))}"
+        local URL="${spec%:*}"
+        local SAVED="${spec:((${#URL}+1))}"
+        #echo "FEED=${FEED}, PNAME=${PNAME}, URL=${URL}, SAVED=${SAVED}"
+        pushd "${BUILDROOT}/feeds/${FEED}/${PNAME}" >/dev/null
+        local mfn="Makefile_ORIG_$(date +%Y-%m-%d_%H:%M:%S)"
+        sed -E \
+         -e "/PKG_SOURCE_URL:=/s|PKG_SOURCE_URL:=(.*)$|PKG_SOURCE_URL:=${URL}|" \
+         -e "/PKG_SOURCE_VERSION:=/s|PKG_SOURCE_VERSION:=(.*)$|PKG_SOURCE_VERSION:=${SAVED}|" \
+         Makefile > "/tmp/${mfn}"
+        if cmp -s Makefile "/tmp/${mfn}"; then
+          echo "${FEED}/${PNAME}: Makefile unchanged"
+        else
+          if [[ ${APPLY} -ne 0 ]]; then
+            echo "${FEED}/${PNAME}: Makefile updated: PKG_SOURCE_URL='${URL}', PKG_SOURCE_VERSION='${SAVED}' - original: ${mfn}"
+            mv Makefile "${mfn}"
+            cp "/tmp/${mfn}" Makefile
+          else
+            echo "${FEED}/${PNAME}: Makefile needs to update: PKG_SOURCE_URL='${URL}', PKG_SOURCE_VERSION='${SAVED}'"
+            diff Makefile "/tmp/${mfn}"
+            echo ""
+          fi
+          rm "/tmp/${mfn}"
+        fi
+        popd >/dev/null
+      fi
+    done < "${PACKAGESTATES}"
+  fi
+  # target config re-apply
+  if [[ ${DO_TARGET} -ne 0 ]]; then
+    pushd "${BUILDROOT}" >/dev/null
+    local cfn=".config_ORIG_$(date +%Y-%m-%d_%H:%M:%S)"
+    if [[ ${APPLY} -ne 0 ]]; then
+      echo "Re-applying target config, original version in ${cfn}"
+      cp .config "${cfn}"
+      p44b_target "${TARGET_ID}"
+    else
+      ./scripts/diffconfig.sh >"/tmp/diffconfig_${TARGET_ID}"
+      echo "Target diffconfig has changed, should re-apply target settings:"
+      diff "/tmp/diffconfig_${TARGET_ID}" "${CONFIGDIR}/diffconfig-${TARGET_ID}"
+    fi
+    popd >/dev/null
+  fi
+}
+
+
+
 # saves the current build state
 # - SHA of LEDE
-# - feeds.conf.default as a reference
+# - feeds.conf as a reference
 # - diffconfig for current target
 # - SHA of feeds
 # - SHA of specified packages
@@ -587,6 +744,7 @@ p44b_usage() {
   echo "   or: ${SCRIPTNAME} instpkg                        - install those packages from feeds that were present at last ${ALIAS} save"
   echo "   or: ${SCRIPTNAME} target [<target>]              - list targets or switch to specified target configuration"
   echo "   or: ${SCRIPTNAME} save                           - save current build's SHAs of buildroot and tracked packages"
+  echo "   or: ${SCRIPTNAME} restore [--sha][--apply] (root|feeds|packages) - restore saved state, --apply to actually modify, --sha to use sha, not branch names"
   echo "   or: ${SCRIPTNAME} send [<file> [<remote path>]]  - send <file> (default: built image for current target) to \$TARGET_HOST via scp (default path: /tmp)"
   echo "   or: ${SCRIPTNAME} get <remote file> [<dir>]      - get <remote file> to local <dir> (default: /tmp) from \$TARGET_HOST via scp"
   echo "   or: ${SCRIPTNAME} login [<host>]                 - connect to specified host or TARGET_HOST via ssh w/o identity checking"
@@ -634,6 +792,9 @@ case ${COMMAND} in
     ;;
   "save")
     p44b_save "$@"
+    ;;
+  "restore")
+    p44b_restore "$@"
     ;;
   "commitversion")
     p44b_commitversion "$@"
