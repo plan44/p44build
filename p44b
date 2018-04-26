@@ -503,32 +503,44 @@ p44b_save() {
       elif [ ! -e "${PKGBUILDDIR}/.gitdownload_url" ]; then
         echo "*** ${PKGNAMEVERS}: was not built with p44b checkout revision tracking"
       else
-        local GITURL=$(cat "${PKGBUILDDIR}/.gitdownload_url")
-        local GITREV=$(cat "${PKGBUILDDIR}/.gitdownload_rev")
-        local GITVERS=$(cat "${PKGBUILDDIR}/.gitdownload_version")
-        local R=$(git ls-remote "${PKG_SOURCE_URL}" "${PKG_SOURCE_VERSION}")
-        local REV="${R%%[[:blank:]]*}"
-        # consistency check
-        if [[ "${GITVERS}" != "${PKG_SOURCE_VERSION}" ]]; then
-          echo "*** ${PKGNAMEVERS}: branch/commit recorded in build (${GITVERS}) differs from PKG_SOURCE_VERSION (${PKG_SOURCE_VERSION})"
-        elif [[ "${PKG_SOURCE_URL}" != "${GITURL}" ]]; then
-          echo "*** ${PKGNAMEVERS}: URL recorded in build (${GITURL}) differs from PKG_SOURCE_URL (${PKG_SOURCE_URL})"
-        elif [[ "${REV}" != "${GITREV}" ]]; then
-          echo "*** ${PKGNAMEVERS}: SHA recorded in build (${GITREV}) differs from git ls-remote (${REV})"
+        # get info recorded during build
+        local BUILDURL=$(cat "${PKGBUILDDIR}/.gitdownload_url")
+        local BUILDREV=$(cat "${PKGBUILDDIR}/.gitdownload_rev")
+        local BUILDVERS=$(cat "${PKGBUILDDIR}/.gitdownload_version")
+        # get info from source repo
+        if [[ "${BUILDREV}" != "${BUILDVERS}" && "${PKG_SOURCE_VERSION}" != "${BUILDREV}" ]]; then
+          # vers is a ref (branch, tag) that can move -> get the SHA of that ref from the git source repo
+          local R=$(git ls-remote "${PKG_SOURCE_URL}" "${PKG_SOURCE_VERSION}")
+          local GITREV="${R%%[[:blank:]]*}"
+        else
+          # vers is a SHA that cannot move, so no need to check with source repo
+          local GITREV="${BUILDREV}"
+        fi
+        # consistency checks
+        if [[ "${BUILDVERS}" != "${PKG_SOURCE_VERSION}" && "${BUILDREV}" != "${PKG_SOURCE_VERSION}" ]]; then
+          echo "*** ${PKGNAMEVERS}: branch/commit recorded in build (${BUILDVERS}) differs from PKG_SOURCE_VERSION (${PKG_SOURCE_VERSION})"
+        elif [[ "${PKG_SOURCE_URL}" != "${BUILDURL}" ]]; then
+          echo "*** ${PKGNAMEVERS}: URL recorded in build (${BUILDURL}) differs from PKG_SOURCE_URL (${PKG_SOURCE_URL})"
         else
           # checks ok, now record
-          echo "package ${PKGNAMEVERS}: was built from ${GITURL}:${GITVERS} (SHA:${GITREV})"
+          echo "package ${PKGNAMEVERS}: was built from ${BUILDURL}:${BUILDVERS} (SHA:${BUILDREV})"
           # - record fixed sha source
-          echo "${PSPEC} ${GITURL}:${GITREV}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
+          echo "${PSPEC} ${BUILDURL}:${BUILDREV}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
           # - record version/branch source
-          echo "${PSPEC} ${GITURL}:${GITVERS}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_VERS"
-          # - create entry for tagging source repositories in tagging script
-          echo "git clone --depth 1 --no-checkout --single-branch --branch ${GITVERS} ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
-          echo "pushd ${PKG_NAME}" >>"${PUSHTAGS}"
-          echo "git tag -f ${VERSION_TAG} ${GITREV}" >>"${PUSHTAGS}"
-          echo "git push -f origin ${VERSION_TAG}" >>"${PUSHTAGS}"
-          echo "popd" >>"${PUSHTAGS}"
-          chmod a+x "${PUSHTAGS}"
+          echo "${PSPEC} ${BUILDURL}:${BUILDVERS}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_VERS"
+          if [[ "${GITREV}" != "${BUILDREV}" ]]; then
+            echo "*** ${PKGNAMEVERS}: Warning: SHA recorded in build (${BUILDREV}) differs from 'git ls-remote ... ${PKG_SOURCE_VERSION}' (${GITREV})"
+            echo "# ${PSPEC}: build SHA differs from 'git ls-remote ... ${PKG_SOURCE_VERSION}' (${GITREV})" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
+            echo "# ${PSPEC}: WARNING: There is no branch/tag at ${BUILDREV} we could clone from: cannot tag" >>"${PUSHTAGS}"
+          else
+            # - create entry for tagging source repositories in tagging script
+            echo "git clone --depth 1 --no-checkout --single-branch --branch ${BUILDVERS} ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
+            echo "pushd ${PKG_NAME}" >>"${PUSHTAGS}"
+            echo "git tag -f ${VERSION_TAG} ${BUILDREV}" >>"${PUSHTAGS}"
+            echo "git push -f origin ${VERSION_TAG}" >>"${PUSHTAGS}"
+            echo "popd" >>"${PUSHTAGS}"
+            chmod a+x "${PUSHTAGS}"
+          fi
         fi
       fi
     fi
