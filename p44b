@@ -627,7 +627,8 @@ p44b_pushversion() {
     pushd "${P44B_SRC_DIR}" >/dev/null
     local BRANCH=$(git rev-parse --abbrev-ref HEAD)
     echo "Pushing branch '${BRANCH}' and tag '${VERSION_TAG}' -> remote '${REMOTE}'"
-    git push ${REMOTE} ${BRANCH} "${VERSION_TAG}"
+    git push ${REMOTE} ${BRANCH}
+    git push ${REMOTE} -f "${VERSION_TAG}"
     popd >/dev/null
   fi
 }
