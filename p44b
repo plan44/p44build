@@ -290,6 +290,8 @@ p44b_restore() {
         echo "feeds.conf has changed: moving original to feeds.conf_ORIG and putting new one in place"
         mv feeds.conf "feeds.conf_ORIG_$(date +%Y-%m-%d_%H:%M:%S)"
         cp "${P44B_SRC_DIR}/${TRACKING_DIR}/feeds.conf-snapshot" feeds.conf
+        echo "Updating and reindexing feeds"
+        ./scripts/feeds update
       else
         echo "feeds.conf has changed:"
         diff "${P44B_SRC_DIR}/${TRACKING_DIR}/feeds.conf-snapshot" feeds.conf
