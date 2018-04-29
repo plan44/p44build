@@ -526,30 +526,31 @@ p44b_save() {
         elif [[ "${PKG_SOURCE_URL}" != "${BUILDURL}" ]]; then
           echo "*** ${PKGNAMEVERS}: URL recorded in build (${BUILDURL}) differs from PKG_SOURCE_URL (${PKG_SOURCE_URL})"
         else
-          # checks ok, now record
+          # basic checks ok
           echo "package ${PKGNAMEVERS}: was built from ${BUILDURL}:${BUILDVERS} (SHA:${BUILDREV})"
+          # check if we can trust the GITVERS branch name actually pointing to the built commit
+          if [[ "${GITREV}" != "${BUILDREV}" ]]; then
+            echo "*** ${PKGNAMEVERS}: Warning: SHA recorded in build (${BUILDREV}) differs from 'git ls-remote ... ${PKG_SOURCE_VERSION}' (${GITREV})"
+            echo "# ${PSPEC}: build SHA differs from current 'git ls-remote ... ${PKG_SOURCE_VERSION}' (${GITREV}) - could be due to commits happening since build" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
+            echo "# ${PSPEC}: WARNING: There is no branch/tag currently at ${BUILDREV}. We need to checkout whole repo" >>"${PUSHTAGS}"
+            GITVERS=
+          fi
           # - record fixed sha source
           echo "${PSPEC} ${BUILDURL}:${BUILDREV}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
           # - record version/branch source
           echo "${PSPEC} ${BUILDURL}:${BUILDVERS}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_VERS"
-          if [[ "${GITREV}" != "${BUILDREV}" ]]; then
-            echo "*** ${PKGNAMEVERS}: Warning: SHA recorded in build (${BUILDREV}) differs from 'git ls-remote ... ${PKG_SOURCE_VERSION}' (${GITREV})"
-            echo "# ${PSPEC}: build SHA differs from 'git ls-remote ... ${PKG_SOURCE_VERSION}' (${GITREV})" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
-            echo "# ${PSPEC}: WARNING: There is no branch/tag at ${BUILDREV} we could clone from: cannot tag" >>"${PUSHTAGS}"
+          # - create entry for tagging source repositories in tagging script
+          if [[ -n "${GITVERS}" ]]; then
+            echo "git clone --depth 1 --no-checkout --single-branch --branch ${BUILDVERS} ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
           else
-            # - create entry for tagging source repositories in tagging script
-            if [[ -n "${GITVERS}" ]]; then
-              echo "git clone --depth 1 --no-checkout --single-branch --branch ${BUILDVERS} ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
-            else
-              # we do not know which branch we need, just clone normally in full depth
-              echo "git clone --no-checkout ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
-            fi
-            echo "pushd ${PKG_NAME}" >>"${PUSHTAGS}"
-            echo "git tag -f ${VERSION_TAG} ${BUILDREV}" >>"${PUSHTAGS}"
-            echo "git push -f origin ${VERSION_TAG}" >>"${PUSHTAGS}"
-            echo "popd" >>"${PUSHTAGS}"
-            chmod a+x "${PUSHTAGS}"
+            # we do not know which branch we need, just clone normally in full depth
+            echo "git clone --no-checkout ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
           fi
+          echo "pushd ${PKG_NAME}" >>"${PUSHTAGS}"
+          echo "git tag -f ${VERSION_TAG} ${BUILDREV}" >>"${PUSHTAGS}"
+          echo "git push -f origin ${VERSION_TAG}" >>"${PUSHTAGS}"
+          echo "popd" >>"${PUSHTAGS}"
+          chmod a+x "${PUSHTAGS}"
         fi
       fi
     fi
