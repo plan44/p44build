@@ -708,6 +708,51 @@ p44b_deploy() {
 
 
 
+p44b_buildtargets() {
+  local DO_TAG=0
+  local DO_PUSH=0
+  local DO_DEPLOY=0
+  local TARGETS
+  for ARG in $@ ; do
+    case "$ARG" in
+      "-t"|"--tag") DO_TAG=1;;
+      "-d"|"--deploy") DO_DEPLOY=1;;
+      "-p"|"--push") DO_PUSH=1;;
+      "all") local TGS="${P44B_SRC_DIR}/${CONFIGS_DIR}/diffconfig"*; for TG in ${TGS}; do TARGETS="$TARGETS ${TG##*/diffconfig-}"; done;;
+      *) TARGETS="$TARGETS $ARG";;
+    esac
+  done
+  # source preparation script, if any
+  local PREPINC="${P44B_SRC_DIR}/${SCRIPTS_DIR}/buildprep.inc"
+  if [ -x "${PREPINC}" ]; then
+    # source it to set ennvironment vars etc.
+    source "${PREPINC}"
+  fi
+  # now do targets
+  for TARGET in $TARGETS; do
+    echo
+    echo "======= Starting target '${TARGET}' at $(date +%Y-%m-%d_%H:%M:%S)"
+    p44b_target "${TARGET}"
+    p44b_build ${P44B_BUILD_ARGS}
+    p44b_package ${P44B_PACKAGE_ARGS}
+    p44b_save
+    if [[ ${DO_DEPLOY} -ne 0 ]]; then
+      p44b_deploy ${P44B_DEPLOY_ARGS}
+    fi
+    if [[ ${DO_TAG} -ne 0 ]]; then
+      p44b_commitversion
+      p44b_tagversion ${P44B_TAGVERSION_ARGS}
+    fi
+    if [[ ${DO_PUSH} -ne 0 ]]; then
+      p44b_pushversion ${P44B_PUSHVERSION_ARGS}
+    fi
+    echo "======= Finished target '${TARGET}' at $(date +%Y-%m-%d_%H:%M:%S)"
+    echo
+  done
+}
+
+
+
 p44b_run() {
   if [[ $# -lt 1 ]]; then
     p44b_usage
@@ -824,6 +869,7 @@ p44b_usage() {
   echo "   or: ${SCRIPTNAME} commitversion                  - commit the currently saved version to the feed the ${ALIAS} source directory is in"
   echo "   or: ${SCRIPTNAME} tagversion [-p|--packages]     - tag the currently saved and committed version (-p: including tracked packages)"
   echo "   or: ${SCRIPTNAME} pushversion <remote>           - push the currently checked out branch and the version tag to remote"
+  echo "   or: ${SCRIPTNAME} buildtargets [opts] <targets>...   - switch to, build, package, save, [--deploy] deploy, [--tag] commit and tag <targets>"
   echo "   or: ${SCRIPTNAME} run <script> [<args>...]       - run script from ${ALIAS} scripts folder"
 }
 
@@ -886,6 +932,9 @@ case ${COMMAND} in
     ;;
   "pushversion")
     p44b_pushversion "$@"
+    ;;
+  "buildtargets")
+    p44b_buildtargets "$@"
     ;;
   "run")
     p44b_run "$@"
