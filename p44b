@@ -231,6 +231,10 @@ p44b_target() {
 }
 
 
+
+
+
+
 # restores the current build state
 # - check only: SHA/version of LEDE
 # - feeds.conf
@@ -587,10 +591,13 @@ p44b_commitversion() {
 
 # tag the current commit with a version tag
 p44b_tagversion() {
-  if [[ $# -ne 0 ]]; then
-    p44b_usage
-    return 1
-  fi
+  local DO_TAG_PKGS=0
+  for OPT in $@ ; do
+    case "$OPT" in
+      "-p"|"--packages") DO_TAG_PKGS=1;;
+      *) echo "unknown option $OPT"; return 1;;
+    esac
+  done
   if [[ -z "${P44B_SRC_DIR}" || ! -f "${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA" ]]; then
     echo "Nothing saved, cannot tag"
     return 1
@@ -604,8 +611,11 @@ p44b_tagversion() {
     pushd "${P44B_SRC_DIR}" >/dev/null
     git tag -f "${VERSION_TAG}"
     popd >/dev/null
-    echo "# You might also want to tag tracked packages by executing:"
-    echo "${P44B_SRC_DIR}/tracking/pushtags.sh"
+    # tag tracked packages?
+    if [[ ${DO_TAG_PKGS} -ne 0 ]]; then
+      echo "# Tagging tracked packages now:"
+      ${P44B_SRC_DIR}/tracking/pushtags.sh
+    fi
   fi
 }
 
@@ -662,6 +672,42 @@ p44b_status() {
 }
 
 
+p44b_build() {
+  local BUILDCMD="${P44B_SRC_DIR}/${SCRIPTS_DIR}/build.sh"
+  if [ ! -f "${BUILDCMD}" ]; then
+    echo "no build.sh script in ${ALIAS} folder -> just using make"
+    BUILDCMD="make"
+  fi
+  # run build script/make
+  echo "===== starting build at $(date +%Y-%m-%d_%H:%M:%S)"
+  $BUILDCMD "$@"
+  echo "===== finished build at $(date +%Y-%m-%d_%H:%M:%S)"
+}
+
+
+p44b_package() {
+  local PKGSCRIPT="${P44B_SRC_DIR}/${SCRIPTS_DIR}/package.sh"
+  if [ ! -f "${PKGSCRIPT}" ]; then
+    echo "no package.sh script in ${ALIAS} script folder"
+    return 1
+  fi
+  # run it
+  $PKGSCRIPT "$@"
+}
+
+
+p44b_deploy() {
+  local DPLSCRIPT="${P44B_SRC_DIR}/${SCRIPTS_DIR}/deploy.sh"
+  if [ ! -f "${DPLSCRIPT}" ]; then
+    echo "no deploy.sh script in ${ALIAS} script folder"
+    return 1
+  fi
+  # run it
+  $DPLSCRIPT "$@"
+}
+
+
+
 p44b_run() {
   if [[ $# -lt 1 ]]; then
     p44b_usage
@@ -689,6 +735,7 @@ p44b_send() {
     local SRCIMGS=$(ls -1t ${BUILDROOT}/bin/targets/${CONFIG_TARGET_BOARD}/${CONFIG_TARGET_SUBTARGET}/${IMG_DIST_NAME_LC}-${CONFIG_VERSION_NUMBER}*-${CONFIG_TARGET_BOARD}-${CONFIG_TARGET_SUBTARGET}-${CONFIG_TARGET_PROFILE##DEVICE_}-*);
     set -- $SRCIMGS
     local SRCFILE=$1
+    local TARGPATH='/tmp'
   elif [[ $# -eq 1 ]]; then
     local SRCFILE=$1
     local TARGPATH='/tmp'
@@ -766,13 +813,16 @@ p44b_usage() {
   echo "   or: ${SCRIPTNAME} prepare                        - prepare (patch) tree from ${ALIAS} info"
   echo "   or: ${SCRIPTNAME} instpkg                        - install those packages from feeds that were present at last ${ALIAS} save"
   echo "   or: ${SCRIPTNAME} target [<target>]              - list targets or switch to specified target configuration"
+  echo "   or: ${SCRIPTNAME} build [<args>...]              - call build.sh script if existing, otherwise just call make, with optional args"
+  echo "   or: ${SCRIPTNAME} package [<args>...]            - call package.sh script with optional args"
+  echo "   or: ${SCRIPTNAME} deploy [<args>...]             - call deploy.sh script with optional args"
   echo "   or: ${SCRIPTNAME} save                           - save current build's SHAs of buildroot and tracked packages"
   echo "   or: ${SCRIPTNAME} restore [--sha][--apply] (root|feeds|packages) - restore saved state, --apply to actually modify, --sha to use sha, not branch names"
   echo "   or: ${SCRIPTNAME} send [<file> [<remote path>]]  - send <file> (default: built image for current target) to \$TARGET_HOST via scp (default path: /tmp)"
   echo "   or: ${SCRIPTNAME} get <remote file> [<dir>]      - get <remote file> to local <dir> (default: /tmp) from \$TARGET_HOST via scp"
   echo "   or: ${SCRIPTNAME} login [<host>]                 - connect to specified host or TARGET_HOST via ssh w/o identity checking"
   echo "   or: ${SCRIPTNAME} commitversion                  - commit the currently saved version to the feed the ${ALIAS} source directory is in"
-  echo "   or: ${SCRIPTNAME} tagversion                     - tag the currently saved and committed version"
+  echo "   or: ${SCRIPTNAME} tagversion [-p|--packages]     - tag the currently saved and committed version (-p: including tracked packages)"
   echo "   or: ${SCRIPTNAME} pushversion <remote>           - push the currently checked out branch and the version tag to remote"
   echo "   or: ${SCRIPTNAME} run <script> [<args>...]       - run script from ${ALIAS} scripts folder"
 }
@@ -803,6 +853,15 @@ case ${COMMAND} in
     ;;
   "target")
     p44b_target "$@"
+    ;;
+  "build")
+    p44b_build "$@"
+    ;;
+  "package")
+    p44b_package "$@"
+    ;;
+  "deploy")
+    p44b_deploy "$@"
     ;;
   "send")
     p44b_send "$@"
