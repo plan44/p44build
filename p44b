@@ -869,7 +869,7 @@ p44b_usage() {
   echo "   or: ${SCRIPTNAME} commitversion                  - commit the currently saved version to the feed the ${ALIAS} source directory is in"
   echo "   or: ${SCRIPTNAME} tagversion [-p|--packages]     - tag the currently saved and committed version (-p: including tracked packages)"
   echo "   or: ${SCRIPTNAME} pushversion <remote>           - push the currently checked out branch and the version tag to remote"
-  echo "   or: ${SCRIPTNAME} buildtargets [opts] <targets>...   - switch to, build, package, save, [--deploy] deploy, [--tag] commit and tag <targets>"
+  echo "   or: ${SCRIPTNAME} buildtargets [opts] <targets>...   - switch to, build, package, save, [--deploy] deploy, [--tag] commit and tag <targets> [--push]"
   echo "   or: ${SCRIPTNAME} run <script> [<args>...]       - run script from ${ALIAS} scripts folder"
 }
 
