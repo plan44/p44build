@@ -32,7 +32,11 @@ if [ -f "${P44B_STATE_DIR}/target_id" ]; then
   TARGET_ID=$(cat "${P44B_STATE_DIR}/target_id")
 fi
 # well-known subdirs of P44B_SRC_DIR
-PATCHES_DIR="lede-patches"
+PATCHES_DIR="global-patches"
+if [ ! -d "${P44B_SRC_DIR}/${PATCHES_DIR}" ]; then
+  # fall back to old name
+  PATCHES_DIR="lede-patches"
+fi
 CONFIGS_DIR="configs"
 TRACKING_DIR="tracking"
 SCRIPTS_DIR="scripts"
