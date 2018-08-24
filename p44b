@@ -32,15 +32,9 @@ if [ -f "${P44B_STATE_DIR}/target_id" ]; then
   TARGET_ID=$(cat "${P44B_STATE_DIR}/target_id")
 fi
 # well-known subdirs of P44B_SRC_DIR
-PATCHES_DIR="global-patches"
-if [ ! -d "${P44B_SRC_DIR}/${PATCHES_DIR}" ]; then
-  # fall back to old name
-  PATCHES_DIR="lede-patches"
-fi
 CONFIGS_DIR="configs"
 TRACKING_DIR="tracking"
 SCRIPTS_DIR="scripts"
-
 
 read_config()
 {
@@ -113,6 +107,12 @@ p44b_init() {
   P44B_SRC_DIR="$(pwd -P)"
   popd >/dev/null
   echo -n "${P44B_SRC_DIR}" > "${P44B_STATE_DIR}/p44b_src_dir"
+  # find patches directory
+  local PATCHES_DIR="global-patches"
+  if [ ! -d "${P44B_SRC_DIR}/${PATCHES_DIR}" ]; then
+    # fall back to old name
+    PATCHES_DIR="lede-patches"
+  fi
   # create soft link into buildroot to patch dir within sources
   if [ -f "${BUILDROOT}/patches" ]; then
     echo "Error: non-softlink '${BUILDROOT}/patches' already exists"
@@ -164,19 +164,31 @@ p44b_prepare() {
   if [ -f "${P44B_SRC_DIR}/buildroot_checkout" ]; then
     local BUILDROOT_CHECKOUT=$(cat "${P44B_SRC_DIR}/buildroot_checkout")
     pushd ${BUILDROOT} >/dev/null
+    # check current checkout
+    # - sha-wise
+    if git rev-parse HEAD | grep -q ${BUILDROOT_CHECKOUT}; then
+      # SHA matches
+      echo "At correct SHA according to buildroot_checkout: ${BUILDROOT_CHECKOUT}"
+    elif git log -n1 --oneline --decorate=short HEAD | grep -q ${BUILDROOT_CHECKOUT}; then
+      # ref (branch, tag) matches
+      echo "At correct ref according to buildroot_checkout: ${BUILDROOT_CHECKOUT}"
+    else
+      echo "Error: buildroot must be at ${BUILDROOT_CHECKOUT}"
+      echo "might want to use: git checkout ${BUILDROOT_CHECKOUT}"
+      exit 1
+    fi
     # remove patches that might be there
-    quilt pop -a
+    quilt pop -af
     # stash just in case, to avoid loosing data
     git stash
     # switch to correct buildroot state
     git reset --hard
-    git checkout "${BUILDROOT_CHECKOUT}"
     # apply the patches
     quilt push -a
     # clean feeds from MacOS folder state files
     find ${BUILDROOT}/feeds -name .DS_Store -delete
   else
-    echo "Warning: no buildroot_checkout (might want to use ${TRACKING_DIR}/buildroot_SHA or ${TRACKING_DIR}/buildroot_VERS)"
+    echo "Error: no buildroot_checkout (might want to use ${TRACKING_DIR}/buildroot_SHA or ${TRACKING_DIR}/buildroot_VERS)"
   fi
 }
 
