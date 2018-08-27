@@ -59,6 +59,8 @@ read_config()
   BUILD_DIR="${BUILDROOT}/build_dir/target-${CONFIG_ARCH}_${CONFIG_CPU_TYPE}_${CONFIG_LIBC}"
   if [ ! -z "${CONFIG_LIBC_VERSION}" ]; then
     BUILD_DIR="${BUILD_DIR}-${CONFIG_LIBC_VERSION}${MUSL_SUFFIX}"
+  else
+    BUILD_DIR="${BUILD_DIR}${MUSL_SUFFIX}"
   fi
   IMG_DIST_NAME="${CONFIG_VERSION_DIST}"
   IMG_DIST_NAME_LC=$(echo "$IMG_DIST_NAME" | awk '{print tolower($0)}')
