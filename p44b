@@ -218,6 +218,7 @@ p44b_target() {
   if [[ $# -eq 0 ]]; then
     # list targets
     TARGETS="${P44B_SRC_DIR}/${CONFIGS_DIR}/diffconfig"*
+    echo "Available targets:"
     for TG in ${TARGETS}; do
       echo "- ${TG##*/diffconfig-}"
     done
@@ -740,6 +741,23 @@ p44b_buildtargets() {
       *) TARGETS="$TARGETS $ARG";;
     esac
   done
+  # sanity check
+  if [ -z "${TARGETS}" ]; then
+    # list targets
+    TARGETS="${P44B_SRC_DIR}/${CONFIGS_DIR}/diffconfig"*
+    echo "Available targets (specify 'ALL' to build all):"
+    for TG in ${TARGETS}; do
+      echo "- ${TG##*/diffconfig-}"
+    done
+    return 0
+  fi
+  # check for "ALL"
+  if [[ "${TARGETS}" == " ALL" ]]; then
+    TARGETS=
+    for TG in "${P44B_SRC_DIR}/${CONFIGS_DIR}/diffconfig"*; do
+      TARGETS="$TARGETS ${TG##*/diffconfig-}"
+    done
+  fi
   # source preparation script, if any
   local PREPINC="${P44B_SRC_DIR}/${SCRIPTS_DIR}/buildprep.inc"
   if [ -x "${PREPINC}" ]; then
@@ -870,25 +888,25 @@ p44b_test() {
 
 # usage
 p44b_usage() {
-  echo "usage: ${SCRIPTNAME} status                         - show status"
-  echo "   or: ${SCRIPTNAME} init <srcdir>                  - initialize buildroot from a ${ALIAS} source directory"
-  echo "   or: ${SCRIPTNAME} cleanup                        - clean up buildroot"
-  echo "   or: ${SCRIPTNAME} prepare                        - prepare (patch) tree from ${ALIAS} info"
-  echo "   or: ${SCRIPTNAME} instpkg                        - install those packages from feeds that were present at last ${ALIAS} save"
-  echo "   or: ${SCRIPTNAME} target [<target>]              - list targets or switch to specified target configuration"
-  echo "   or: ${SCRIPTNAME} build [<args>...]              - call build.sh script if existing, otherwise just call make, with optional args"
-  echo "   or: ${SCRIPTNAME} package [<args>...]            - call package.sh script with optional args"
-  echo "   or: ${SCRIPTNAME} deploy [<args>...]             - call deploy.sh script with optional args"
-  echo "   or: ${SCRIPTNAME} save                           - save current build's SHAs of buildroot and tracked packages"
+  echo "usage: ${SCRIPTNAME} status                            - show status"
+  echo "   or: ${SCRIPTNAME} cleanup                           - clean up buildroot"
+  echo "   or: ${SCRIPTNAME} init <srcdir>                     - initialize buildroot from a ${ALIAS} source directory"
+  echo "   or: ${SCRIPTNAME} prepare                           - prepare (patch) tree from ${ALIAS} info"
+  echo "   or: ${SCRIPTNAME} instpkg                           - install those packages from feeds that were present at last ${ALIAS} save"
+  echo "   or: ${SCRIPTNAME} target [<target>]                 - list targets or switch to specified target configuration"
+  echo "   or: ${SCRIPTNAME} build [<args>...]                 - call build.sh script if existing, otherwise just call make, with optional args"
+  echo "   or: ${SCRIPTNAME} package [<args>...]               - call package.sh script with optional args"
+  echo "   or: ${SCRIPTNAME} deploy [<args>...]                - call deploy.sh script with optional args"
+  echo "   or: ${SCRIPTNAME} save                              - save current build's SHAs of buildroot and tracked packages"
   echo "   or: ${SCRIPTNAME} restore [--sha][--apply] (root|feeds|packages) - restore saved state, --apply to actually modify, --sha to use sha, not branch names"
-  echo "   or: ${SCRIPTNAME} send [<file> [<remote path>]]  - send <file> (default: built image for current target) to \$TARGET_HOST via scp (default path: /tmp)"
-  echo "   or: ${SCRIPTNAME} get <remote file> [<dir>]      - get <remote file> to local <dir> (default: /tmp) from \$TARGET_HOST via scp"
-  echo "   or: ${SCRIPTNAME} login [<host>]                 - connect to specified host or TARGET_HOST via ssh w/o identity checking"
-  echo "   or: ${SCRIPTNAME} commitversion                  - commit the currently saved version to the feed the ${ALIAS} source directory is in"
-  echo "   or: ${SCRIPTNAME} tagversion [-p|--packages]     - tag the currently saved and committed version (-p: including tracked packages)"
-  echo "   or: ${SCRIPTNAME} pushversion <remote>           - push the currently checked out branch and the version tag to remote"
-  echo "   or: ${SCRIPTNAME} buildtargets [opts] <targets>...   - switch to, build, package, save, [--deploy] deploy, [--tag] commit and tag <targets> [--push]"
-  echo "   or: ${SCRIPTNAME} run <script> [<args>...]       - run script from ${ALIAS} scripts folder"
+  echo "   or: ${SCRIPTNAME} send [<file> [<remote path>]]     - send <file> (default: built image for current target) to \$TARGET_HOST via scp (default path: /tmp)"
+  echo "   or: ${SCRIPTNAME} get <remote file> [<dir>]         - get <remote file> to local <dir> (default: /tmp) from \$TARGET_HOST via scp"
+  echo "   or: ${SCRIPTNAME} login [<host>]                    - connect to specified host or TARGET_HOST via ssh w/o identity checking"
+  echo "   or: ${SCRIPTNAME} commitversion                     - commit the currently saved version to the feed the ${ALIAS} source directory is in"
+  echo "   or: ${SCRIPTNAME} tagversion [-p|--packages]        - tag the currently saved and committed version (-p: including tracked packages)"
+  echo "   or: ${SCRIPTNAME} pushversion <remote>              - push the currently checked out branch and the version tag to remote"
+  echo "   or: ${SCRIPTNAME} buildtargets [opts] <targets>...  - switch to, build, package, save <targets>; [--deploy] with deploy, [--tag] with commit+tag, [--push] with push"
+  echo "   or: ${SCRIPTNAME} run <script> [<args>...]          - run script from ${ALIAS} scripts folder"
 }
 
 
