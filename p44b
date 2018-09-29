@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# p44b: host script for managing LEDE based product builds
+# p44b: host script for managing OpenWrt based product builds
 shopt -s extglob
 
 # must always be started from buildroot
@@ -35,6 +35,7 @@ fi
 CONFIGS_DIR="configs"
 TRACKING_DIR="tracking"
 SCRIPTS_DIR="scripts"
+GLOBAL_PATCHES_DIR="global-patches"
 
 read_config()
 {
@@ -80,7 +81,7 @@ read_config()
 
 # Initialize a buildroot tree for p44b operation
 #
-# Usage: from a LEDE buildroot:
+# Usage: from a OpenWrt buildroot:
 #    </full/path/to/arbitrary/location>/p44b init <path to p44build source directory of a product>
 #
 # Does the following
@@ -110,7 +111,7 @@ p44b_init() {
   popd >/dev/null
   echo -n "${P44B_SRC_DIR}" > "${P44B_STATE_DIR}/p44b_src_dir"
   # find patches directory
-  local PATCHES_DIR="global-patches"
+  local PATCHES_DIR="${GLOBAL_PATCHES_DIR}"
   if [ ! -d "${P44B_SRC_DIR}/${PATCHES_DIR}" ]; then
     # fall back to old name
     PATCHES_DIR="lede-patches"
@@ -125,6 +126,73 @@ p44b_init() {
   if [ ! -f "${BUILDROOT}/${ALIAS}" ]; then
     ln -sf "${SCRIPTFILE}" "${BUILDROOT}/${ALIAS}"
   fi
+  echo "Successfully initialized p44build using directory: ${P44B_SRC_DIR}"
+  return 0
+}
+
+
+# switch to a different p44b directory without re-patching the buildroot tree
+# Is only possible if the two p44b directories share the same tree checkout SHA and same set of patches
+#
+# Usage: from a OpenWrt buildroot:
+#    p44b switch <path to p44build source directory of another product using the same openwrt tree state>
+#
+# Does the following
+# - put a softlink called "p44b" pointing to the script itself into buildroot
+# - creates a .p44build directory in the buildroot
+# - remembers the product's p44build source directory in .p44build/p44b_src_dir
+# - sets a softlink to the P44B_SRC dir
+p44b_switch() {
+  local NEW_SRC_DIR="$1"
+  if [[ $# -ne 1 ]]; then
+    p44b_usage
+    return 1
+  fi
+  if [ ! -d "${NEW_SRC_DIR}" ]; then
+    echo "Error: '${NEW_SRC_DIR}' is not a directory"
+    return 1
+  fi
+  # state directory must exist
+  if [ ! -e "${P44B_STATE_DIR}" ]; then
+    echo "p44build apparently not initialized, cannot switch - use 'init' first"
+    return 1
+  fi
+  # expand new name
+  pushd "${NEW_SRC_DIR}" >/dev/null
+  NEW_SRC_DIR="$(pwd -P)"
+  popd >/dev/null
+  # check for same openwrt tree state
+  local OLD_CHECKOUT=$(cat "${P44B_SRC_DIR}/buildroot_checkout")
+  local NEW_CHECKOUT=$(cat "${NEW_SRC_DIR}/buildroot_checkout")
+  if [[ "${OLD_CHECKOUT}" != "${NEW_CHECKOUT}" ]]; then
+    echo "to-be-switched to directory is based on different buildroot checkout ('${NEW_CHECKOUT}' rather than '${OLD_CHECKOUT}') - use 'cleanup'/'init'"
+    return 1
+  fi
+  # check for same set of global patches (note: no check for legacy "lede-patches" here!)
+  local OLD_PATCHES="${P44B_SRC_DIR}/${GLOBAL_PATCHES_DIR}"
+  local NEW_PATCHES="${NEW_SRC_DIR}/${GLOBAL_PATCHES_DIR}"
+  if ! diff "${OLD_PATCHES}" "${NEW_PATCHES}"; then
+    echo "global set of patches is not equal, cannot switch - use 'cleanup'/'init'"
+    return 1
+  fi
+  # make sure patches is a softlink
+  if [ ! -h "${BUILDROOT}/patches" ]; then
+    echo "Error: '${BUILDROOT}/patches' is not a softlink!"
+    return 1
+  fi
+#   echo "patches dirs are equal: $OLD_PATCHES <-> $NEW_PATCHES"
+#   echo "P44B_STATE_DIR = $P44B_STATE_DIR"
+#   echo "NEW_SRC_DIR = $NEW_SRC_DIR"
+#   echo "BUILDROOT = $BUILDROOT"
+  # switch is possible
+  # - un-target
+  rm "${P44B_STATE_DIR}/target_id" 2>/dev/null
+  rm "${BUILDROOT}/.config"  2>/dev/null
+  # - save the new p44build directory
+  echo -n "${NEW_SRC_DIR}" > "${P44B_STATE_DIR}/p44b_src_dir"
+  # - set the soft link in buildroot to the new (but identical) patch dir
+  ln -sf "${NEW_SRC_DIR}/${PATCHES_DIR}" "${BUILDROOT}/patches"
+  echo "Successfully switched to new p44build directory: ${NEW_SRC_DIR}"
   return 0
 }
 
@@ -136,6 +204,8 @@ p44b_cleanup() {
     return 1
   fi
   # Cleanup buildroot
+  # - remove project specific config
+  rm "${BUILDROOT}/.config" 2>/dev/null
   # - make sure patches are removed
   pushd "${BUILDROOT}" >/dev/null
   quilt pop -af
@@ -255,7 +325,7 @@ p44b_target() {
 
 
 # restores the current build state
-# - check only: SHA/version of LEDE
+# - check only: SHA/version of OpenWrt
 # - feeds.conf
 # - SHA of feeds
 # - SHA of specified packages
@@ -416,12 +486,12 @@ p44b_restore() {
 
 
 # saves the current build state
-# - SHA of LEDE
+# - SHA of OpenWrt
 # - feeds.conf as a reference
 # - diffconfig for current target
 # - SHA of feeds
 # - SHA of specified packages
-# - script for installing stuff from feeds (note: feeds.conf.default is made of LEDE+patches)
+# - script for installing stuff from feeds (note: feeds.conf.default is made of OpenWrt+patches)
 p44b_save() {
   if [[ $# -ne 0 ]]; then
     p44b_usage
@@ -891,6 +961,7 @@ p44b_usage() {
   echo "usage: ${SCRIPTNAME} status                            - show status"
   echo "   or: ${SCRIPTNAME} cleanup                           - clean up buildroot"
   echo "   or: ${SCRIPTNAME} init <srcdir>                     - initialize buildroot from a ${ALIAS} source directory"
+  echo "   or: ${SCRIPTNAME} switch <srcdir>                   - (try to) switch to a ${ALIAS} source directory w/o changing buildroot (possible if patches are equal)"
   echo "   or: ${SCRIPTNAME} prepare                           - prepare (patch) tree from ${ALIAS} info"
   echo "   or: ${SCRIPTNAME} instpkg                           - install those packages from feeds that were present at last ${ALIAS} save"
   echo "   or: ${SCRIPTNAME} target [<target>]                 - list targets or switch to specified target configuration"
@@ -923,6 +994,9 @@ case ${COMMAND} in
     ;;
   "init")
     p44b_init "$@"
+    ;;
+  "switch")
+    p44b_switch "$@"
     ;;
   "cleanup")
     p44b_cleanup "$@"
