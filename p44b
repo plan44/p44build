@@ -121,10 +121,10 @@ p44b_init() {
     echo "Error: non-softlink '${BUILDROOT}/patches' already exists"
     return 1
   fi
-  ln -sf "${P44B_SRC_DIR}/${PATCHES_DIR}" "${BUILDROOT}/patches"
+  ln -sfh "${P44B_SRC_DIR}/${PATCHES_DIR}" "${BUILDROOT}/patches"
   # create convenience soft link to script itself in buildroot (but do not replace regular file, should there be one)
   if [ ! -f "${BUILDROOT}/${ALIAS}" ]; then
-    ln -sf "${SCRIPTFILE}" "${BUILDROOT}/${ALIAS}"
+    ln -sfh "${SCRIPTFILE}" "${BUILDROOT}/${ALIAS}"
   fi
   echo "Successfully initialized p44build using directory: ${P44B_SRC_DIR}"
   return 0
@@ -168,6 +168,8 @@ p44b_switch() {
     echo "to-be-switched to directory is based on different buildroot checkout ('${NEW_CHECKOUT}' rather than '${OLD_CHECKOUT}') - use 'cleanup'/'init'"
     return 1
   fi
+  # clean feeds from MacOS folder state files (there could be some in the patches, too)
+  find ${BUILDROOT}/feeds -name .DS_Store -delete
   # check for same set of global patches (note: no check for legacy "lede-patches" here!)
   local OLD_PATCHES="${P44B_SRC_DIR}/${GLOBAL_PATCHES_DIR}"
   local NEW_PATCHES="${NEW_SRC_DIR}/${GLOBAL_PATCHES_DIR}"
@@ -184,6 +186,7 @@ p44b_switch() {
 #   echo "P44B_STATE_DIR = $P44B_STATE_DIR"
 #   echo "NEW_SRC_DIR = $NEW_SRC_DIR"
 #   echo "BUILDROOT = $BUILDROOT"
+#   return 1
   # switch is possible
   # - un-target
   rm "${P44B_STATE_DIR}/target_id" 2>/dev/null
@@ -191,7 +194,7 @@ p44b_switch() {
   # - save the new p44build directory
   echo -n "${NEW_SRC_DIR}" > "${P44B_STATE_DIR}/p44b_src_dir"
   # - set the soft link in buildroot to the new (but identical) patch dir
-  ln -sf "${NEW_SRC_DIR}/${PATCHES_DIR}" "${BUILDROOT}/patches"
+  ln -sfh "${NEW_SRC_DIR}/${GLOBAL_PATCHES_DIR}" "${BUILDROOT}/patches"
   echo "Successfully switched to new p44build directory: ${NEW_SRC_DIR}"
   return 0
 }
