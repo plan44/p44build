@@ -754,10 +754,13 @@ p44b_status() {
     echo "Distribution    : ${CONFIG_VERSION_DIST}"
     echo "Product         : ${CONFIG_VERSION_PRODUCT}"
     echo "HW Revision     : ${CONFIG_VERSION_HWREV}"
-    echo "Current version : ${CONFIG_VERSION_NUMBER}"
-    echo "Current feed    : ${CONFIG_P44_FEED_NAME}"
     echo "Build dir       : ${BUILD_DIR}"
     echo "target host     : ${TARGET_HOST}"
+    echo "Current version : ${CONFIG_VERSION_NUMBER}"
+    echo "Current feed    : ${CONFIG_P44_FEED_NAME}"
+    read_config # saved settings
+    echo "Saved Version   : ${CONFIG_VERSION_NUMBER}"
+    echo "Saved feed      : ${CONFIG_P44_FEED_NAME}"
   else
     echo "This tree is not initialized for ${ALIAS} yet"
   fi
