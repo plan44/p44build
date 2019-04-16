@@ -53,16 +53,23 @@ read_config()
     VERSION_TAG="${CONFIG_P44_FEED_NAME}/${VERSION_TAG}"
   fi
   VERSION_TAG="${CONFIG_VERSION_PRODUCT}/${VERSION_TAG}/${TARGET_ID}"
+  # musl suffix
   MUSL_SUFFIX=""
   if [[ "${CONFIG_TARGET_SUFFIX#muslgnu}" == "eabi" ]]; then
     MUSL_SUFFIX="_eabi"
   fi
-  BUILD_DIR="${BUILDROOT}/build_dir/target-${CONFIG_ARCH}_${CONFIG_CPU_TYPE}_${CONFIG_LIBC}"
+  # target identifying string
+  TARGETID="target-${CONFIG_ARCH}_${CONFIG_CPU_TYPE}_${CONFIG_LIBC}"
   if [ ! -z "${CONFIG_LIBC_VERSION}" ]; then
-    BUILD_DIR="${BUILD_DIR}-${CONFIG_LIBC_VERSION}${MUSL_SUFFIX}"
+    TARGETID="${TARGETID}-${CONFIG_LIBC_VERSION}${MUSL_SUFFIX}"
   else
-    BUILD_DIR="${BUILD_DIR}${MUSL_SUFFIX}"
+    TARGETID="${TARGETID}${MUSL_SUFFIX}"
   fi
+  # build dir
+  BUILD_DIR="${BUILDROOT}/build_dir/${TARGETID}"
+  # staging root
+  STAGING_ROOT="${BUILDROOT}/staging_dir/${TARGETID}/root-${CONFIG_TARGET_BOARD}"
+  # dist name
   IMG_DIST_NAME="${CONFIG_VERSION_DIST}"
   IMG_DIST_NAME_LC=$(echo "$IMG_DIST_NAME" | awk '{print tolower($0)}')
   popd >/dev/null
@@ -511,7 +518,7 @@ p44b_save() {
   mkdir "${P44B_SRC_DIR}/${TRACKING_DIR}" 2>/dev/null
   local GITREV=$(git rev-parse HEAD)
   local GITVERS=$(git rev-parse --abbrev-ref HEAD)
-  echo "builroot: built from ${GITVERS} (SHA:${GITREV})"
+  echo "openwrt buildroot: built from ${GITVERS} (SHA:${GITREV})"
   echo "${GITREV}" >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA"
   echo "${GITVERS}" >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_VERS"
   # current feeds.conf
@@ -886,18 +893,30 @@ p44b_send() {
     echo "Need to define TARGET_HOST shell variable"
     return 1
   fi
+  local SRCFILE=""
+  local SRCSUFFIX=""
+  read_config ".config" # current settings, not saved ones
+  while [[ "${1:0:1}" == "-" ]]; do
+    case "$1" in
+#      "-p"|"--package") SRCFILE="bin/packages/mipsel_24kc/plan44/", SRCSUFFIX='*.ipk';shift 1;;
+      "-e"|"--executable") SRCFILE="${STAGING_ROOT}/usr/bin/" ;shift 1;;
+      *) echo "unknown option $1";return 1;;
+    esac
+  done
   if [[ $# -eq 0 ]]; then
     # default to current image
-    read_config ".config" # current settings, not saved ones
-    local SRCIMGS=$(ls -1t ${BUILDROOT}/bin/targets/${CONFIG_TARGET_BOARD}/${CONFIG_TARGET_SUBTARGET}/${IMG_DIST_NAME_LC}-${CONFIG_VERSION_NUMBER}*-${CONFIG_TARGET_BOARD}-${CONFIG_TARGET_SUBTARGET}-${CONFIG_TARGET_PROFILE##DEVICE_}-*);
-    set -- $SRCIMGS
+    if [[ -z ${SRCFILE} ]]; then
+      read_config ".config" # current settings, not saved ones
+      local SRCIMGS=$(ls -1t ${BUILDROOT}/bin/targets/${CONFIG_TARGET_BOARD}/${CONFIG_TARGET_SUBTARGET}/${IMG_DIST_NAME_LC}-${CONFIG_VERSION_NUMBER}*-${CONFIG_TARGET_BOARD}-${CONFIG_TARGET_SUBTARGET}-${CONFIG_TARGET_PROFILE##DEVICE_}-*);
+      set -- $SRCIMGS
+    fi
     local SRCFILE=$1
     local TARGPATH='/tmp'
   elif [[ $# -eq 1 ]]; then
-    local SRCFILE=$1
+    SRCFILE="${SRCFILE}$1"
     local TARGPATH='/tmp'
   elif [[ $# -eq 2 ]]; then
-    local SRCFILE=$1
+    SRCFILE="${SRCFILE}$1"
     local TARGPATH=$2
   else
     p44b_usage
@@ -908,6 +927,24 @@ p44b_send() {
   scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "${SRCFILE}" "root@${TARGET_HOST}:${TARGPATH}"
   echo "...done"
 }
+
+
+p44b_debug() {
+  if [[ $# -eq 0 ]]; then
+    echo "need to specify executable"
+    return 1
+  fi
+  local EXECNAME=$1
+  read_config ".config" # current settings, not saved ones
+  local EXECS=$(ls -1t ${BUILDROOT}/build_dir/${TARGETID}/${EXECNAME}-*/${EXECNAME})
+  set -- $EXECS
+  local EXEC=$1
+  echo "# Debugging: ${EXEC}"
+  ${BUILDROOT}/scripts/remote-gdb ${TARGET_HOST}:9000 ${EXEC}
+  echo "# done debugging ${EXEC}"
+}
+
+
 
 
 p44b_get() {
@@ -975,8 +1012,9 @@ p44b_usage() {
   echo "   or: ${SCRIPTNAME} package [<args>...]               - call package.sh script with optional args"
   echo "   or: ${SCRIPTNAME} deploy [<args>...]                - call deploy.sh script with optional args"
   echo "   or: ${SCRIPTNAME} save                              - save current build's SHAs of buildroot and tracked packages"
-  echo "   or: ${SCRIPTNAME} restore [--sha][--apply] (root|feeds|packages) - restore saved state, --apply to actually modify, --sha to use sha, not branch names"
-  echo "   or: ${SCRIPTNAME} send [<file> [<remote path>]]     - send <file> (default: built image for current target) to \$TARGET_HOST via scp (default path: /tmp)"
+  echo "   or: ${SCRIPTNAME} restore [--sha][--apply] (root|feeds|packages)  - restore saved state, --apply to actually modify, --sha to use sha, not branch names"
+  echo "   or: ${SCRIPTNAME} send [-e] [<file> [<remote path>]]  - send [executable] <file> (default: built image for current target) to \$TARGET_HOST via scp (default path: /tmp)"
+  echo "   or: ${SCRIPTNAME} debug <package>                   - start gdb session for <package>'s executable"
   echo "   or: ${SCRIPTNAME} get <remote file> [<dir>]         - get <remote file> to local <dir> (default: /tmp) from \$TARGET_HOST via scp"
   echo "   or: ${SCRIPTNAME} login [<host>]                    - connect to specified host or TARGET_HOST via ssh w/o identity checking"
   echo "   or: ${SCRIPTNAME} commitversion                     - commit the currently saved version to the feed the ${ALIAS} source directory is in"
@@ -1027,6 +1065,9 @@ case ${COMMAND} in
     ;;
   "send")
     p44b_send "$@"
+    ;;
+  "debug")
+    p44b_debug "$@"
     ;;
   "get")
     p44b_get "$@"
