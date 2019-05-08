@@ -58,15 +58,19 @@ read_config()
   if [[ "${CONFIG_TARGET_SUFFIX#muslgnu}" == "eabi" ]]; then
     MUSL_SUFFIX="_eabi"
   fi
-  # target identifying string
-  TARGETID="target-${CONFIG_ARCH}_${CONFIG_CPU_TYPE}_${CONFIG_LIBC}"
+  LIBCID="${CONFIG_LIBC}"
   if [ ! -z "${CONFIG_LIBC_VERSION}" ]; then
-    TARGETID="${TARGETID}-${CONFIG_LIBC_VERSION}${MUSL_SUFFIX}"
+    LIBCID="${LIBCID}-${CONFIG_LIBC_VERSION}${MUSL_SUFFIX}"
   else
-    TARGETID="${TARGETID}${MUSL_SUFFIX}"
+    LIBCID="${LIBCID}${MUSL_SUFFIX}"
   fi
+  # target/toolchain identifying string
+  TARGETID="target-${CONFIG_ARCH}_${CONFIG_CPU_TYPE}_${LIBCID}"
+  TOOLCHAINID="toolchain-${CONFIG_ARCH}_${CONFIG_CPU_TYPE}_gcc-${CONFIG_GCC_VERSION}_${LIBCID}"
   # build dir
   BUILD_DIR="${BUILDROOT}/build_dir/${TARGETID}"
+  # toolchain root
+  TOOLCHAIN_ROOT="${BUILDROOT}/build_dir/${TOOLCHAINID}"
   # staging root
   STAGING_ROOT="${BUILDROOT}/staging_dir/${TARGETID}/root-${CONFIG_TARGET_BOARD}"
   # dist name
@@ -219,8 +223,6 @@ p44b_cleanup() {
   # - make sure patches are removed
   pushd "${BUILDROOT}" >/dev/null
   quilt pop -af
-  git reset --hard
-  popd >/dev/null
   # - remove the quilt working dir
   rm -rf "${BUILDROOT}/.pc"
   # - remove the softlink to the actual patches (but only softlink!)
@@ -231,6 +233,11 @@ p44b_cleanup() {
   if [ -d "${P44B_STATE_DIR}" ]; then
     rm -rf "${P44B_STATE_DIR}"
   fi
+  git status
+  echo "# if status is not clean, you might want to use..."
+  echo "git reset --hard"
+  echo "# ...here to bring the tree back into clean state"
+  popd >/dev/null
   # Note: do not remove the convenience link (will be updated in case another version of the script is used explicitly)
   return 0
 }
@@ -762,6 +769,8 @@ p44b_status() {
     echo "Product         : ${CONFIG_VERSION_PRODUCT}"
     echo "HW Revision     : ${CONFIG_VERSION_HWREV}"
     echo "Build dir       : ${BUILD_DIR}"
+    echo "staging_dir     : ${STAGING_ROOT}"
+    echo "toolchain       : ${TOOLCHAIN_ROOT}"
     echo "target host     : ${TARGET_HOST}"
     echo "Current version : ${CONFIG_VERSION_NUMBER}"
     echo "Current feed    : ${CONFIG_P44_FEED_NAME}"
@@ -895,11 +904,13 @@ p44b_send() {
   fi
   local SRCFILE=""
   local SRCSUFFIX=""
+  local DO_STRIP=0
   read_config ".config" # current settings, not saved ones
   while [[ "${1:0:1}" == "-" ]]; do
     case "$1" in
 #      "-p"|"--package") SRCFILE="bin/packages/mipsel_24kc/plan44/", SRCSUFFIX='*.ipk';shift 1;;
       "-e"|"--executable") SRCFILE="${STAGING_ROOT}/usr/bin/" ;shift 1;;
+      "-d"|"--debuggable") SRCFILE="${STAGING_ROOT}/usr/bin/" ; DO_STRIP=1; shift 1;;
       *) echo "unknown option $1";return 1;;
     esac
   done
@@ -922,6 +933,11 @@ p44b_send() {
     p44b_usage
     return 1
   fi
+  if [[ ${DO_STRIP} -ne 0 ]]; then
+    echo "# Stripping symbols from ${SRCFILE}"
+    "${TOOLCHAIN_ROOT}/binutils/binutils/strip-new" -o /tmp/debugtarget "${SRCFILE}"
+    SRCFILE="/tmp/debugtarget"
+  fi
   echo "# Sending: ${SRCFILE} to ${TARGET_HOST}:${TARGPATH}"
   echo "scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ${SRCFILE} root@${TARGET_HOST}:${TARGPATH}"
   scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "${SRCFILE}" "root@${TARGET_HOST}:${TARGPATH}"
@@ -935,11 +951,12 @@ p44b_debug() {
     return 1
   fi
   local EXECNAME=$1
-  read_config ".config" # current settings, not saved ones
+  p44b_send -d ${EXECNAME}
   local EXECS=$(ls -1t ${BUILDROOT}/build_dir/${TARGETID}/${EXECNAME}-*/${EXECNAME})
   set -- $EXECS
   local EXEC=$1
-  echo "# Debugging: ${EXEC}"
+  echo "# Debugging: ${EXEC} - paste next line into gdb"
+  echo "set remote exec-file /tmp/debugtarget"
   ${BUILDROOT}/scripts/remote-gdb ${TARGET_HOST}:9000 ${EXEC}
   echo "# done debugging ${EXEC}"
 }
@@ -1013,8 +1030,8 @@ p44b_usage() {
   echo "   or: ${SCRIPTNAME} deploy [<args>...]                - call deploy.sh script with optional args"
   echo "   or: ${SCRIPTNAME} save                              - save current build's SHAs of buildroot and tracked packages"
   echo "   or: ${SCRIPTNAME} restore [--sha][--apply] (root|feeds|packages)  - restore saved state, --apply to actually modify, --sha to use sha, not branch names"
-  echo "   or: ${SCRIPTNAME} send [-e] [<file> [<remote path>]]  - send [executable] <file> (default: built image for current target) to \$TARGET_HOST via scp (default path: /tmp)"
-  echo "   or: ${SCRIPTNAME} debug <package>                   - start gdb session for <package>'s executable"
+  echo "   or: ${SCRIPTNAME} send [-e|-d] [<file> [<remote path>]]  - send [[-d:stripped]-e:executable] <file> (default: built image for current target) to \$TARGET_HOST via scp (default path: /tmp)"
+  echo "   or: ${SCRIPTNAME} debug <package>                   - send <package>'s executable (stripped) and start gdb session for it"
   echo "   or: ${SCRIPTNAME} get <remote file> [<dir>]         - get <remote file> to local <dir> (default: /tmp) from \$TARGET_HOST via scp"
   echo "   or: ${SCRIPTNAME} login [<host>]                    - connect to specified host or TARGET_HOST via ssh w/o identity checking"
   echo "   or: ${SCRIPTNAME} commitversion                     - commit the currently saved version to the feed the ${ALIAS} source directory is in"
