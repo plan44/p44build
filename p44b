@@ -44,7 +44,11 @@ read_config()
   if [[ $# -eq 0 ]]; then
     local DOT_CONFIG_LOCATION="${P44B_SRC_DIR}/${CONFIGS_DIR}/.config-${TARGET_ID}"
   else
-    local DOT_CONFIG_LOCATION="${BUILDROOT}/$1"
+    if [[ "${1:0:1}" != "/" ]]; then
+      local DOT_CONFIG_LOCATION="${BUILDROOT}/$1"
+    else
+      local DOT_CONFIG_LOCATION="$1"
+    fi
   fi
   source "${DOT_CONFIG_LOCATION}" 2>/dev/null
   # define derived vars
@@ -777,6 +781,9 @@ p44b_status() {
     read_config # saved settings
     echo "Saved Version   : ${CONFIG_VERSION_NUMBER}"
     echo "Saved feed      : ${CONFIG_P44_FEED_NAME}"
+    read_config "${P44B_SRC_DIR}/${CONFIGS_DIR}/diffconfig-${TARGET_ID}" # prepared diffconfig settings
+    echo "Next Version    : ${CONFIG_VERSION_NUMBER}"
+    echo "Next feed       : ${CONFIG_P44_FEED_NAME}"
   else
     echo "This tree is not initialized for ${ALIAS} yet"
   fi
