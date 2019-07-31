@@ -111,12 +111,12 @@ p44b_init() {
     return 1
   fi
   if [ ! -d "${NEW_SRC_DIR}" ]; then
-    echo "Error: '${NEW_SRC_DIR}' is not a directory"
+    echo "*** Error: '${NEW_SRC_DIR}' is not a directory"
     return 1
   fi
   # create state directory
   if [ -e "${P44B_STATE_DIR}" ]; then
-    echo "Error: p44build apparently already initialized - if not, please cleanup first"
+    echo "*** Error: p44build apparently already initialized - if not, please cleanup first"
     return 1
   fi
   mkdir "${P44B_STATE_DIR}"
@@ -133,7 +133,7 @@ p44b_init() {
   fi
   # create soft link into buildroot to patch dir within sources
   if [ -f "${BUILDROOT}/patches" ]; then
-    echo "Error: non-softlink '${BUILDROOT}/patches' already exists"
+    echo "*** Error: non-softlink '${BUILDROOT}/patches' already exists"
     return 1
   fi
   ln -sfh "${P44B_SRC_DIR}/${PATCHES_DIR}" "${BUILDROOT}/patches"
@@ -141,6 +141,22 @@ p44b_init() {
   if [ ! -f "${BUILDROOT}/${ALIAS}" ]; then
     ln -sfh "${SCRIPTFILE}" "${BUILDROOT}/${ALIAS}"
   fi
+  # check for matching tracking info and warn if there are differences
+  local CURRENT=$(git rev-parse HEAD)
+  local SAVED=$(cat "${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA")
+  if [[ "${CURRENT}" != "${SAVED}" ]]; then
+    echo "*** Warning: last buildroot saved was '${SAVED}', but is now at '${CURRENT}'"
+    echo "    MOST PROBABLY, feeds.conf needs to be updated and"
+    echo "    ./scripts/feeds update <feednames> should be applied!"
+    echo "=== Diff between distribution's (recommended) feeds.conf.default and current feeds.conf"
+    diff feeds.conf.default feeds.conf;
+    echo "=== end diff"
+  fi
+  echo "=== Diff between last saved feeds.conf snapshot and current feeds.conf"
+  if ! diff ${P44B_SRC_DIR}/${TRACKING_DIR}/feeds.conf-snapshot feeds.conf; then
+    echo "*** Warning: current feeds.conf differs from snapshot -> maybe root was updated?"
+  fi
+  echo "=== end diff"
   echo "Successfully initialized p44build using directory: ${P44B_SRC_DIR}"
   return 0
 }
