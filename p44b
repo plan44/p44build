@@ -84,6 +84,15 @@ read_config()
 }
 
 
+set_script_env()
+{
+  # publish some environment variables for called scripts
+  read_config ".config" # current settings, not saved ones
+  local SRCIMGS=$(ls -1t ${BUILDROOT}/bin/targets/${CONFIG_TARGET_BOARD}/${CONFIG_TARGET_SUBTARGET}/${IMG_DIST_NAME_LC}-${CONFIG_VERSION_NUMBER}*-${CONFIG_TARGET_BOARD}-${CONFIG_TARGET_SUBTARGET}-${CONFIG_TARGET_PROFILE##DEVICE_}-*);
+  set -- $SRCIMGS
+  # publish in environment for called scripts/commands
+  export BUILT_IMAGE=$1
+}
 
 
 # echo "SCRIPTDIR=$SCRIPTDIR"
@@ -819,10 +828,22 @@ p44b_build() {
 }
 
 
+p44b_flash() {
+  local FLASHSCRIPT="${P44B_SRC_DIR}/${SCRIPTS_DIR}/flash.sh"
+  if [ ! -x "${FLASHSCRIPT}" ]; then
+    echo "no executable flash.sh script in ${ALIAS} folder"
+    return 1
+  fi
+  set_script_env
+  # run it
+  $FLASHSCRIPT "$@"
+}
+
+
 p44b_package() {
   local PKGSCRIPT="${P44B_SRC_DIR}/${SCRIPTS_DIR}/package.sh"
-  if [ ! -f "${PKGSCRIPT}" ]; then
-    echo "no package.sh script in ${ALIAS} script folder"
+  if [ ! -x "${PKGSCRIPT}" ]; then
+    echo "no executable package.sh script in ${ALIAS} script folder"
     return 1
   fi
   # run it
@@ -832,10 +853,11 @@ p44b_package() {
 
 p44b_deploy() {
   local DPLSCRIPT="${P44B_SRC_DIR}/${SCRIPTS_DIR}/deploy.sh"
-  if [ ! -f "${DPLSCRIPT}" ]; then
-    echo "no deploy.sh script in ${ALIAS} script folder"
+  if [ ! -x "${DPLSCRIPT}" ]; then
+    echo "no executable deploy.sh script in ${ALIAS} script folder"
     return 1
   fi
+  set_script_env
   # run it
   $DPLSCRIPT "$@"
 }
@@ -910,11 +932,16 @@ p44b_run() {
     return 1
   fi
   local SCRIPT="${P44B_SRC_DIR}/${SCRIPTS_DIR}/$1"
-  if [ ! -f "${SCRIPT}" ]; then
-    echo "no script '$1' in ${ALIAS} script folder"
-    return 1
+  if [ ! -x "${SCRIPT}" ]; then
+    # try with .sh suffix
+    SCRIPT="${SCRIPT}.sh"
+    if [ ! -x "${SCRIPT}" ]; then
+      echo "no script '$1' in ${ALIAS} script folder"
+      return 1
+    fi
   fi
   shift 1
+  set_script_env
   # run it
   $SCRIPT "$@"
 }
@@ -940,11 +967,11 @@ p44b_send() {
   if [[ $# -eq 0 ]]; then
     # default to current image
     if [[ -z ${SRCFILE} ]]; then
-      read_config ".config" # current settings, not saved ones
-      local SRCIMGS=$(ls -1t ${BUILDROOT}/bin/targets/${CONFIG_TARGET_BOARD}/${CONFIG_TARGET_SUBTARGET}/${IMG_DIST_NAME_LC}-${CONFIG_VERSION_NUMBER}*-${CONFIG_TARGET_BOARD}-${CONFIG_TARGET_SUBTARGET}-${CONFIG_TARGET_PROFILE##DEVICE_}-*);
-      set -- $SRCIMGS
+      set_script_env
+      local SRCFILE=${BUILT_IMAGE}
+    else
+      local SRCFILE=$1
     fi
-    local SRCFILE=$1
     local TARGPATH='/tmp'
   elif [[ $# -eq 1 ]]; then
     SRCFILE="${SRCFILE}$1"
@@ -954,6 +981,10 @@ p44b_send() {
     local TARGPATH=$2
   else
     p44b_usage
+    return 1
+  fi
+  if [ ! -f "${SRCFILE}" ]; then
+    echo "No file found to send"
     return 1
   fi
   if [[ ${DO_STRIP} -ne 0 ]]; then
@@ -1049,8 +1080,9 @@ p44b_usage() {
   echo "   or: ${SCRIPTNAME} instpkg                           - install those packages from feeds that were present at last ${ALIAS} save"
   echo "   or: ${SCRIPTNAME} target [<target>]                 - list targets or switch to specified target configuration"
   echo "   or: ${SCRIPTNAME} build [<args>...]                 - call build.sh script if existing, otherwise just call make, with optional args"
-  echo "   or: ${SCRIPTNAME} package [<args>...]               - call package.sh script with optional args"
+  echo "   or: ${SCRIPTNAME} package [<args>...]               - call package.sh script with with optional args"
   echo "   or: ${SCRIPTNAME} deploy [<args>...]                - call deploy.sh script with optional args"
+  echo "   or: ${SCRIPTNAME} flash [<args>...]                 - call flash.sh script with optional args"
   echo "   or: ${SCRIPTNAME} save                              - save current build's SHAs of buildroot and tracked packages"
   echo "   or: ${SCRIPTNAME} restore [--sha][--apply] (root|feeds|packages)  - restore saved state, --apply to actually modify, --sha to use sha, not branch names"
   echo "   or: ${SCRIPTNAME} send [-e|-d] [<file> [<remote path>]]  - send [[-d:stripped]-e:executable] <file> (default: built image for current target) to \$TARGET_HOST via scp (default path: /tmp)"
@@ -1096,6 +1128,9 @@ case ${COMMAND} in
     ;;
   "build")
     p44b_build "$@"
+    ;;
+  "flash")
+    p44b_flash "$@"
     ;;
   "package")
     p44b_package "$@"
