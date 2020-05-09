@@ -1,6 +1,82 @@
 #!/bin/bash
-
 # p44b: host script for managing OpenWrt based product builds
+
+# Helpers
+err()
+{
+  echo -e "$_ERR$@$_N"
+}
+
+warn()
+{
+  echo -e "$_WARN$@$_N"
+}
+
+notice()
+{
+  echo -e "$_NOTICE$@$_N"
+}
+
+info()
+{
+  echo -e "$_INFO$@$_N"
+}
+
+plain()
+{
+  echo -e "$_N$@"
+}
+
+
+die() {
+  err "*** Error:" $@
+  exit 1
+}
+
+
+starting() {
+  notice "=== starting" $@ "at $(date +%Y-%m-%d_%H:%M:%S)"
+}
+
+finished() {
+  if [[ "$?" == "0" ]]; then
+    notice "=== succeeded" $@ "at $(date +%Y-%m-%d_%H:%M:%S)"
+    return 0
+  else
+    err "=== failed" $@ "at $(date +%Y-%m-%d_%H:%M:%S)"
+    return 1
+  fi
+}
+
+syntax() {
+  # calling function
+  CMD="${FUNCNAME[1]##command:}"
+  err "Syntax error:" $@
+  help:$CMD
+  exit 1
+}
+
+
+has() {
+  # eg. has command update
+  local kind=$1
+  local name=$2
+  type -t $kind:$name | grep -q function
+}
+
+
+# colorisation
+if [ -t 1 ]; then
+  if [ -z "$NO_COLOR" ]; then
+    _INFO='\033[90m' # info: gray (bright black)
+    _NOTICE='\033[92m' # notice: bright green
+    _ERR='\033[91m' # error: bright red
+    _WARN='\033[31m' # warning: red
+    _N='\033[m' # normal
+  fi
+fi
+
+# need extglob matching
 shopt -s extglob
 
 # must always be started from buildroot
@@ -24,7 +100,7 @@ P44B_STATE_DIR="${BUILDROOT}/.p44build"
 if [ -f "${P44B_STATE_DIR}/p44b_src_dir" ]; then
   P44B_SRC_DIR=$(cat "${P44B_STATE_DIR}/p44b_src_dir")
   if [ ! -d "${P44B_SRC_DIR}" ]; then
-    echo "Warning: ${ALIAS} source dir does not exist: '${P44B_SRC_DIR}'"
+    warn "Warning: ${ALIAS} source dir does not exist: '${P44B_SRC_DIR}'"
     P44B_SRC_DIR=
   fi
 fi
@@ -91,6 +167,11 @@ set_script_env()
   local SRCIMGS=$(ls -1t ${BUILDROOT}/bin/targets/${CONFIG_TARGET_BOARD}/${CONFIG_TARGET_SUBTARGET}/${IMG_DIST_NAME_LC}-${CONFIG_VERSION_NUMBER}*-${CONFIG_TARGET_BOARD}-${CONFIG_TARGET_SUBTARGET}-${CONFIG_TARGET_PROFILE##DEVICE_}-*);
   set -- $SRCIMGS
   # publish in environment for called scripts/commands
+  export P44B_SRC_DIR
+  export P44B_CONFIGS_DIR="${P44B_SRC_DIR}/${CONFIGS_DIR}"
+  export P44B_TRACKING_DIR="${P44B_SRC_DIR}/${TRACKING_DIR}"
+  export P44B_SCRIPTS_DIR="${P44B_SRC_DIR}/${SCRIPTS_DIR}"
+  export P44B_GLOBAL_PATCHES_DIR="${P44B_SRC_DIR}/${GLOBAL_PATCHES_DIR}"
   export BUILT_IMAGE=$1
 }
 
@@ -103,30 +184,33 @@ set_script_env()
 #
 # exit 0
 
-# Initialize a buildroot tree for p44b operation
-#
-# Usage: from a OpenWrt buildroot:
-#    </full/path/to/arbitrary/location>/p44b init <path to p44build source directory of a product>
-#
-# Does the following
-# - put a softlink called "p44b" pointing to the script itself into buildroot
-# - creates a .p44build directory in the buildroot
-# - remembers the product's p44build source directory in .p44build/p44b_src_dir
-# - sets a softlink to the P44B_SRC dir
-p44b_init() {
+
+help:init() {
+cat >&2 <<ENDHELP
+Usage: [<path/to/script>]${SCRIPTNAME} ${FUNCNAME[0]##help:} <path to p44build source directory of a product>
+
+Initialize a buildroot tree for p44b operation
+
+Does the following
+- put a softlink called "$ALIAS" pointing to the script itself into buildroot
+  (to allow easy calling with just ./${ALIAS})
+- creates a .p44build directory in the buildroot
+- remembers the product's p44build source directory in .p44build/p44b_src_dir
+- sets a softlink to the P44B_SRC dir
+
+ENDHELP
+}
+command:init() {
   local NEW_SRC_DIR="$1"
   if [[ $# -ne 1 ]]; then
-    p44b_usage
-    return 1
+    syntax "must specify a path to a p44build directory"
   fi
   if [ ! -d "${NEW_SRC_DIR}" ]; then
-    echo "*** Error: '${NEW_SRC_DIR}' is not a directory"
-    return 1
+    die "'${NEW_SRC_DIR}' is not a directory"
   fi
   # create state directory
   if [ -e "${P44B_STATE_DIR}" ]; then
-    echo "*** Error: p44build apparently already initialized - if not, please cleanup first"
-    return 1
+    die "p44build apparently already initialized - if not, please cleanup first"
   fi
   mkdir "${P44B_STATE_DIR}"
   # expand and save the directory
@@ -142,8 +226,7 @@ p44b_init() {
   fi
   # create soft link into buildroot to patch dir within sources
   if [ -f "${BUILDROOT}/patches" ]; then
-    echo "*** Error: non-softlink '${BUILDROOT}/patches' already exists"
-    return 1
+    die "non-softlink '${BUILDROOT}/patches' already exists"
   fi
   ln -sfh "${P44B_SRC_DIR}/${PATCHES_DIR}" "${BUILDROOT}/patches"
   # create convenience soft link to script itself in buildroot (but do not replace regular file, should there be one)
@@ -154,48 +237,47 @@ p44b_init() {
   local CURRENT=$(git rev-parse HEAD)
   local SAVED=$(cat "${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA")
   if [[ "${CURRENT}" != "${SAVED}" ]]; then
-    echo "*** Warning: last buildroot saved was '${SAVED}', but is now at '${CURRENT}'"
-    echo "    MOST PROBABLY, feeds.conf needs to be updated and"
-    echo "    ./scripts/feeds update <feednames> should be applied!"
-    echo "=== Diff between distribution's (recommended) feeds.conf.default and current feeds.conf"
+    warn "*** Warning: last buildroot saved was '${SAVED}', but is now at '${CURRENT}'"
+    warn "    MOST PROBABLY, feeds.conf needs to be updated and"
+    warn "    ./scripts/feeds update <feednames> should be applied!"
+    info "=== Diff between distribution's (recommended) feeds.conf.default and current feeds.conf"
     diff feeds.conf.default feeds.conf;
-    echo "=== end diff"
+    info "=== end diff"
   fi
-  echo "=== Diff between last saved feeds.conf snapshot and current feeds.conf"
+  info "=== Diff between last saved feeds.conf snapshot and current feeds.conf"
   if ! diff ${P44B_SRC_DIR}/${TRACKING_DIR}/feeds.conf-snapshot feeds.conf; then
-    echo "*** Warning: current feeds.conf differs from snapshot -> maybe root was updated?"
+    warn "*** Warning: current feeds.conf differs from snapshot -> maybe root was updated?"
   fi
-  echo "=== end diff"
-  echo "Successfully initialized p44build using directory: ${P44B_SRC_DIR}"
+  info "=== end diff"
+  notice "Successfully initialized p44build using directory: ${P44B_SRC_DIR}"
   return 0
 }
 
 
-# switch to a different p44b directory without re-patching the buildroot tree
-# Is only possible if the two p44b directories share the same tree checkout SHA and same set of patches
-#
-# Usage: from a OpenWrt buildroot:
-#    p44b switch <path to p44build source directory of another product using the same openwrt tree state>
-#
-# Does the following
-# - put a softlink called "p44b" pointing to the script itself into buildroot
-# - creates a .p44build directory in the buildroot
-# - remembers the product's p44build source directory in .p44build/p44b_src_dir
-# - sets a softlink to the P44B_SRC dir
-p44b_switch() {
+help:switch() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} <path to p44build source directory of a product>
+
+Switch to a different p44b directory without re-patching the buildroot tree.
+This is only possible if the two p44b directories share the same tree checkout SHA
+and the same set of patches in ${GLOBAL_PATCHES_DIR}
+
+This makes switching between very similar projects faster, as keeping the patches in place
+prevents triggering expensive rebuilds.
+
+ENDHELP
+}
+command:switch() {
   local NEW_SRC_DIR="$1"
   if [[ $# -ne 1 ]]; then
-    p44b_usage
-    return 1
+    syntax "must specify a path to a p44build directory"
   fi
   if [ ! -d "${NEW_SRC_DIR}" ]; then
-    echo "Error: '${NEW_SRC_DIR}' is not a directory"
-    return 1
+    die "'${NEW_SRC_DIR}' is not a directory"
   fi
   # state directory must exist
   if [ ! -e "${P44B_STATE_DIR}" ]; then
-    echo "p44build apparently not initialized, cannot switch - use 'init' first"
-    return 1
+    die "p44build apparently not initialized, cannot switch - use 'init' first"
   fi
   # expand new name
   pushd "${NEW_SRC_DIR}" >/dev/null
@@ -205,8 +287,7 @@ p44b_switch() {
   local OLD_CHECKOUT=$(cat "${P44B_SRC_DIR}/buildroot_checkout")
   local NEW_CHECKOUT=$(cat "${NEW_SRC_DIR}/buildroot_checkout")
   if [[ "${OLD_CHECKOUT}" != "${NEW_CHECKOUT}" ]]; then
-    echo "to-be-switched to directory is based on different buildroot checkout ('${NEW_CHECKOUT}' rather than '${OLD_CHECKOUT}') - use 'cleanup'/'init'"
-    return 1
+    die "to-be-switched to directory is based on different buildroot checkout ('${NEW_CHECKOUT}' rather than '${OLD_CHECKOUT}') - use 'cleanup'/'init'"
   fi
   # clean feeds from MacOS folder state files (there could be some in the patches, too)
   find ${BUILDROOT}/feeds -name .DS_Store -delete
@@ -214,13 +295,11 @@ p44b_switch() {
   local OLD_PATCHES="${P44B_SRC_DIR}/${GLOBAL_PATCHES_DIR}"
   local NEW_PATCHES="${NEW_SRC_DIR}/${GLOBAL_PATCHES_DIR}"
   if ! diff "${OLD_PATCHES}" "${NEW_PATCHES}"; then
-    echo "global set of patches is not equal, cannot switch - use 'cleanup'/'init'"
-    return 1
+    die "global set of patches is not equal, cannot switch - use 'cleanup'/'init'"
   fi
   # make sure patches is a softlink
   if [ ! -h "${BUILDROOT}/patches" ]; then
-    echo "Error: '${BUILDROOT}/patches' is not a softlink!"
-    return 1
+    die "Error: '${BUILDROOT}/patches' is not a softlink!"
   fi
 #   echo "patches dirs are equal: $OLD_PATCHES <-> $NEW_PATCHES"
 #   echo "P44B_STATE_DIR = $P44B_STATE_DIR"
@@ -235,16 +314,31 @@ p44b_switch() {
   echo -n "${NEW_SRC_DIR}" > "${P44B_STATE_DIR}/p44b_src_dir"
   # - set the soft link in buildroot to the new (but identical) patch dir
   ln -sfh "${NEW_SRC_DIR}/${GLOBAL_PATCHES_DIR}" "${BUILDROOT}/patches"
-  echo "Successfully switched to new p44build directory: ${NEW_SRC_DIR}"
+  notice "Successfully switched to new p44build directory: ${NEW_SRC_DIR}"
   return 0
 }
 
 
-# cleanup
-p44b_cleanup() {
+help:cleanup() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:}
+
+cleans up all changes made by init/prepare to the openwrt tree
+
+In particular:
+- the project specific .config is removed
+- all patches applied to the tree (with ${SCRIPTNAME} prepare) are removed
+  (this is done with quilt pop -af in the buildroot)
+- p44b specific softlinks and state is removed
+
+Note: if state is not clean, the command will warn, but not reset the git checkout
+  (only recommend it)
+
+ENDHELP
+}
+command:cleanup() {
   if [[ $# -ne 0 ]]; then
-    p44b_usage
-    return 1
+    syntax "no argument expected"
   fi
   # Cleanup buildroot
   # - remove project specific config
@@ -263,21 +357,35 @@ p44b_cleanup() {
     rm -rf "${P44B_STATE_DIR}"
   fi
   git status
-  echo "# if status is not clean, you might want to use..."
-  echo "git reset --hard"
-  echo "# ...here to bring the tree back into clean state"
+  info "# if status is not clean, you might want to use..."
+  plain "git reset --hard"
+  info "# ...here to bring the tree back into clean state"
   popd >/dev/null
   # Note: do not remove the convenience link (will be updated in case another version of the script is used explicitly)
   return 0
 }
 
 
+help:prepare() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:}
+
+Prepares (patches) the buildroot tree with project specific patches from ${GLOBAL_PATCHES_DIR}
+
+In particular:
+- removes current patches
+- discards previous changes to the tree (if some are present, these will be stashed first)
+- checks out the buildroot commit as recorded in $P44B_SRC_DIR/buildroot_checkout
+- applies all buildroot patches
+- cleans feeds/ directory from macOS .DS_Store files which can interfere with builds
+
+ENDHELP
+}
 # Prepare the tree
-# - removes current patches
-# - discards previous changes to the tree (if some are present, these will be stashed first)
-# - checks out the buildroot commit as recorded in $P44B_SRC_DIR/buildroot_checkout
-# - applies all buildroot patches
-p44b_prepare() {
+command:prepare() {
+  if [[ $# -ne 0 ]]; then
+    syntax "no argument expected"
+  fi
   # checkout the buildroot checkout
   if [ -f "${P44B_SRC_DIR}/buildroot_checkout" ]; then
     local BUILDROOT_CHECKOUT=$(cat "${P44B_SRC_DIR}/buildroot_checkout")
@@ -286,14 +394,15 @@ p44b_prepare() {
     # - sha-wise
     if git rev-parse HEAD | grep -q ${BUILDROOT_CHECKOUT}; then
       # SHA matches
-      echo "At correct SHA according to buildroot_checkout: ${BUILDROOT_CHECKOUT}"
+      info "At correct SHA according to buildroot_checkout: ${BUILDROOT_CHECKOUT}"
     elif git log -n1 --oneline --decorate=short HEAD | grep -q ${BUILDROOT_CHECKOUT}; then
       # ref (branch, tag) matches
-      echo "At correct ref according to buildroot_checkout: ${BUILDROOT_CHECKOUT}"
+      info "At correct ref according to buildroot_checkout: ${BUILDROOT_CHECKOUT}"
     else
-      echo "Error: buildroot must be at ${BUILDROOT_CHECKOUT}"
-      echo "might want to use: git checkout ${BUILDROOT_CHECKOUT}"
-      exit 1
+      err "Error: buildroot must be at ${BUILDROOT_CHECKOUT}"
+      info "might want to use:"
+      plain "  git checkout ${BUILDROOT_CHECKOUT}"
+      return 1
     fi
     # remove patches that might be there
     quilt pop -af
@@ -306,49 +415,67 @@ p44b_prepare() {
     # clean feeds from MacOS folder state files
     find ${BUILDROOT}/feeds -name .DS_Store -delete
   else
-    echo "Error: no buildroot_checkout (might want to use ${TRACKING_DIR}/buildroot_SHA or ${TRACKING_DIR}/buildroot_VERS)"
+    err "Error: no buildroot_checkout"
+    info "(might want to use ${TRACKING_DIR}/buildroot_SHA or ${TRACKING_DIR}/buildroot_VERS)"
+    exit 1
   fi
 }
 
 
-# Install those packages that were present at last save
-# - if last save has created a install_packages.sh
-p44b_instpkg() {
+help:instpkg() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:}
+
+Installs all packages that were present at last ${SCRIPTNAME} save
+(this is done by executing ${TRACKING_DIR}/install_packages.sh)
+
+ENDHELP
+}
+command:instpkg() {
   # checkout the buildroot checkout
   if [ -f "${P44B_SRC_DIR}/${TRACKING_DIR}/install_packages.sh" ]; then
     bash ${P44B_SRC_DIR}/${TRACKING_DIR}/install_packages.sh
   else
-    echo "Warning: no install_packages.sh found. You might want to install all packages instead with ./scripts/feeds install -a"
+    warn "Warning: no install_packages.sh found."
+    info "You might want to install all packages instead with"
+    plain "./scripts/feeds install -a"
   fi
 }
 
 
 
-# Configure for a specific target
-#
-# Does the following
-# - cleans tmp/
-# - reindexes package feeds
-# - copies target's diffconfig to .config and expands it with make defconfig
-p44b_target() {
+help:target() {
+cat >&2 <<ENDHELP
+Usage:
+  ${SCRIPTNAME} ${FUNCNAME[0]##help:}              - list all targets
+  ${SCRIPTNAME} ${FUNCNAME[0]##help:} <target>     - configure for specified target
+
+Applies configuration for the specified target to the buildroot from diffconfig saved
+for the target (in ${CONFIGS_DIR}/diffconfig-<target>)
+
+In particular:
+- updates the package indices
+- expands the saved diffconfig to a full .config (make defconfig)
+
+ENDHELP
+}
+command:target() {
   if [[ $# -eq 0 ]]; then
     # list targets
     TARGETS="${P44B_SRC_DIR}/${CONFIGS_DIR}/diffconfig"*
-    echo "Available targets:"
+    notice "Available targets:"
     for TG in ${TARGETS}; do
-      echo "- ${TG##*/diffconfig-}"
+      plain "- ${TG##*/diffconfig-}"
     done
     return 0
   fi
   if [[ $# -ne 1 ]]; then
-    p44b_usage
-    return 1
+    syntax "specify single target"
   fi
   local NEW_TARGET_ID="$1"
   local DIFFCONFIG="${P44B_SRC_DIR}/${CONFIGS_DIR}/diffconfig-${NEW_TARGET_ID}"
   if [ ! -f "${DIFFCONFIG}" ]; then
-    echo "Error: buildroot configuration file '${DIFFCONFIG}' not found"
-    return 1
+    die "buildroot configuration file '${DIFFCONFIG}' not found"
   fi
   # remember the target identifier
   TARGET_ID="${NEW_TARGET_ID}"
@@ -362,24 +489,31 @@ p44b_target() {
   make defconfig
   popd >/dev/null
   # show the status
-  p44b_status
+  command:status
 }
 
 
 
+help:restore() {
+cat >&2 <<ENDHELP
+Usage:
+  ${SCRIPTNAME} ${FUNCNAME[0]##help:} [--apply] <restore operations>
 
+Restore operations are:
+  root     : checkout the saved buildroot tree version (never automatically, not even with --apply)
+  feeds    : checkout the saved feed versions
+  packages : modify makefiles of tracked packages to point at the specific version in use at last save
+  target   : apply diffconfig (as with ${SCRIPTNAME} target)
 
+Options:
+  --apply  : actually perform the restore (without --apply, needed changes are displayed only)
+  --sha    : use exact SHA for buildroot, package feeds and tracked packages (rather than references/tags/branches)
 
-# restores the current build state
-# - check only: SHA/version of OpenWrt
-# - feeds.conf
-# - SHA of feeds
-# - SHA of specified packages
-# - config for the current target
-p44b_restore() {
+ENDHELP
+}
+command:restore() {
   if [[ $# -lt 1 ]]; then
-    p44b_usage
-    return 1
+    syntax "need to specify what to restore"
   fi
   local BYSHA=0
   local APPLY=0
@@ -395,12 +529,11 @@ p44b_restore() {
       "feeds") DO_FEEDS=1;;
       "packages") DO_PACKAGES=1;;
       "target") DO_TARGET=1;;
-      *) echo "unknown option $OPT"; return 1;;
+      *) die "unknown option $OPT";;
     esac
   done
   if [[ -z "${TARGET_ID}" || -z "${P44B_SRC_DIR}" ]]; then
-    echo "No target selected, cannot restore"
-    return 1
+    die "No target selected, cannot restore"
   fi
   # diffconfig for current target
   local CONFIGDIR="${P44B_SRC_DIR}/${CONFIGS_DIR}"
@@ -416,28 +549,27 @@ p44b_restore() {
       local SAVED=$(cat "${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_VERS")
     fi
     if [[ "${CURRENT}" != "${SAVED}" ]]; then
-      echo "Buildroot originally saved from was at '${SAVED}', but is now at '${CURRENT}'"
+      warn "Buildroot originally saved from was at '${SAVED}', but is now at '${CURRENT}'"
       if [[ ${APPLY} -ne 0 ]]; then
-        echo "**** NOT automatically changing this -> manually checkout the correct buildroot commit"
-        return 1;
+        die "Cannot continue, please manually checkout the correct buildroot commit"
       fi
     fi
-    echo "Buildroot state is correct: '${CURRENT}'"
+    notice "Buildroot state is correct: '${CURRENT}'"
     # current feeds.conf
     if ! cmp -s "${P44B_SRC_DIR}/${TRACKING_DIR}/feeds.conf-snapshot" feeds.conf; then
       if [[ ${APPLY} -ne 0 ]]; then
-        echo "feeds.conf has changed: moving original to feeds.conf_ORIG and putting new one in place"
+        warn "feeds.conf has changed: moving original to feeds.conf_ORIG and putting new one in place"
         mv feeds.conf "feeds.conf_ORIG_$(date +%Y-%m-%d_%H:%M:%S)"
         cp "${P44B_SRC_DIR}/${TRACKING_DIR}/feeds.conf-snapshot" feeds.conf
-        echo "Updating and reindexing feeds"
+        info "Updating and reindexing feeds"
         ./scripts/feeds update
       else
-        echo "feeds.conf has changed:"
+        warn "feeds.conf has changed:"
         diff "${P44B_SRC_DIR}/${TRACKING_DIR}/feeds.conf-snapshot" feeds.conf
-        echo ""
+        plain ""
       fi
     else
-      echo "feeds.conf is unchanged"
+      info "feeds.conf is unchanged"
     fi
     popd >/dev/null
   fi
@@ -462,11 +594,13 @@ p44b_restore() {
         fi
         popd >/dev/null
         if [[ "${CURRENT}" != "${SAVED}" ]]; then
-          echo "***** feed ${FEED} should be at '${SAVED}' but is at '${CURRENT}'"
           if [[ ${APPLY} -ne 0 ]]; then
-            "pushd ${BUILDROOT}/feeds/${FEED}; git stash; git checkout ${SAVED}; popd"
+            notice "restoring feed '${FEED}' checkout from current '${CURRENT}' to saved '${SAVED}'"
+            pushd "${BUILDROOT}/feeds/${FEED}"; git stash; git checkout ${SAVED}; popd
           else
-            echo "pushd ${BUILDROOT}/feeds/${FEED}; git stash; git checkout ${SAVED}; popd"
+            warn "***** feed ${FEED} should be at '${SAVED}' but is at '${CURRENT}'"
+            info "You might want to checkout the correct version:"
+            plain "pushd ${BUILDROOT}/feeds/${FEED}; git stash; git checkout ${SAVED}; popd"
           fi
         fi
       fi
@@ -495,16 +629,16 @@ p44b_restore() {
          -e "/PKG_SOURCE_VERSION:=/s|PKG_SOURCE_VERSION:=(.*)$|PKG_SOURCE_VERSION:=${SAVED}|" \
          Makefile > "/tmp/${mfn}"
         if cmp -s Makefile "/tmp/${mfn}"; then
-          echo "${FEED}/${PNAME}: Makefile unchanged"
+          info "${FEED}/${PNAME}: Makefile unchanged"
         else
           if [[ ${APPLY} -ne 0 ]]; then
-            echo "${FEED}/${PNAME}: Makefile updated: PKG_SOURCE_URL='${URL}', PKG_SOURCE_VERSION='${SAVED}' - original: ${mfn}"
+            notice "${FEED}/${PNAME}: Makefile updated: PKG_SOURCE_URL='${URL}', PKG_SOURCE_VERSION='${SAVED}' - original: ${mfn}"
             mv Makefile "${mfn}"
             cp "/tmp/${mfn}" Makefile
           else
-            echo "${FEED}/${PNAME}: Makefile needs to update: PKG_SOURCE_URL='${URL}', PKG_SOURCE_VERSION='${SAVED}'"
+            warn "${FEED}/${PNAME}: Makefile needs to update: PKG_SOURCE_URL='${URL}', PKG_SOURCE_VERSION='${SAVED}'"
             diff Makefile "/tmp/${mfn}"
-            echo ""
+            plain ""
           fi
           rm "/tmp/${mfn}"
         fi
@@ -517,13 +651,14 @@ p44b_restore() {
     pushd "${BUILDROOT}" >/dev/null
     local cfn=".config_ORIG_$(date +%Y-%m-%d_%H:%M:%S)"
     if [[ ${APPLY} -ne 0 ]]; then
-      echo "Re-applying target config, original version in ${cfn}"
+      notice "Re-applying target config, original version in ${cfn}"
       cp .config "${cfn}"
-      p44b_target "${TARGET_ID}"
+      command:target "${TARGET_ID}"
     else
       ./scripts/diffconfig.sh >"/tmp/diffconfig_${TARGET_ID}"
-      echo "Target diffconfig has changed, should re-apply target settings:"
+      warn "Target diffconfig has changed, should re-apply target settings:"
       diff "/tmp/diffconfig_${TARGET_ID}" "${CONFIGDIR}/diffconfig-${TARGET_ID}"
+      plain ""
     fi
     popd >/dev/null
   fi
@@ -531,21 +666,32 @@ p44b_restore() {
 
 
 
-# saves the current build state
-# - SHA of OpenWrt
-# - feeds.conf as a reference
-# - diffconfig for current target
-# - SHA of feeds
-# - SHA of specified packages
-# - script for installing stuff from feeds (note: feeds.conf.default is made of OpenWrt+patches)
-p44b_save() {
+help:save() {
+cat >&2 <<ENDHELP
+Usage:
+  ${SCRIPTNAME} ${FUNCNAME[0]##help:}
+
+Saves the current build state into the p44build/${TRACKING_DIR} consisting of:
+- SHA of OpenWrt
+- copy of feeds.conf as a reference
+- diffconfig for current target
+- SHA and symbolic rev of feeds
+- SHA and symbolic rev of specified packages
+- a script for installing currently used packages from feeds (install_packages.sh)
+
+Committing these saved items to the project's feed repository captures all
+information to reproduce this particular build later.
+
+${SCRIPTNAME} restore can be used to re-establish a saved state.
+
+ENDHELP
+}
+command:save() {
   if [[ $# -ne 0 ]]; then
-    p44b_usage
-    return 1
+    syntax "no arguments expected"
   fi
   if [[ -z "${TARGET_ID}" || -z "${P44B_SRC_DIR}" ]]; then
-    echo "No target selected, cannot save"
-    return 1
+    die "No target selected, cannot save"
   fi
   pushd ${BUILDROOT} >/dev/null
   # clean feeds from MacOS folder state files
@@ -554,7 +700,9 @@ p44b_save() {
   mkdir "${P44B_SRC_DIR}/${TRACKING_DIR}" 2>/dev/null
   local GITREV=$(git rev-parse HEAD)
   local GITVERS=$(git rev-parse --abbrev-ref HEAD)
-  echo "openwrt buildroot: built from ${GITVERS} (SHA:${GITREV})"
+  starting "saving build state"
+  info "=== saving current buildroot state (SHA/rev)"
+  plain "openwrt buildroot: built from ${GITVERS} (SHA:${GITREV})"
   echo "${GITREV}" >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA"
   echo "${GITVERS}" >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_VERS"
   # current feeds.conf
@@ -563,6 +711,7 @@ p44b_save() {
   local CONFIGDIR="${P44B_SRC_DIR}/${CONFIGS_DIR}"
   ./scripts/diffconfig.sh >"${CONFIGDIR}/diffconfig-${TARGET_ID}"
   # complete config for reference purposes
+  info "=== saving installed packages into ${TRACKING_DIR}/install_packages.sh"
   cp .config "${CONFIGDIR}/.config-${TARGET_ID}"
   popd >/dev/null
   # Capture installed packages from feeds (as a script that can be run to update feeds and install the packages)
@@ -588,25 +737,27 @@ p44b_save() {
     popd >/dev/null
   done
   # Capture state of feeds
-  echo "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_VERS"
-  echo "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_SHA"
+  info "=== saving feed states"
+  plain "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_VERS"
+  plain "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_SHA"
   pushd "${BUILDROOT}/feeds" >/dev/null
   for FEED in !(*.*) ; do
     pushd "${FEED}" >/dev/null
     local GITURL=$(git remote show origin | sed -ne "/Fetch URL:/s/ *Fetch URL: //p")
     local GITREV=$(git rev-parse HEAD)
     local GITVERS=$(git rev-parse --abbrev-ref HEAD)
-    echo "feed ${FEED}: origin at ${GITURL}:${GITVERS} (SHA:${GITREV})"
+    plain "feed ${FEED}: origin at ${GITURL}:${GITVERS} (SHA:${GITREV})"
     echo "${FEED} ${GITURL}:${GITVERS}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_VERS"
     echo "${FEED} ${GITURL}:${GITREV}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_SHA"
     popd >/dev/null
   done
   popd >/dev/null
   # Track package source SHAs/versions
+  info "=== saving tracked package states"
   read_config
   # go through tracked packages
   if [ ! -f "${P44B_SRC_DIR}/tracked_packages" ]; then
-    echo "no tracked_packages file -> nothing to track"
+    notice "no tracked_packages file -> nothing to track"
     return 0
   fi
   local PACKAGES=$(cat "${P44B_SRC_DIR}/tracked_packages");
@@ -622,7 +773,7 @@ p44b_save() {
     #echo "feed=$FEEDNAME pgk=$PKGNAME"
     local PKGDIR="${BUILDROOT}/feeds/${FEEDNAME}/${PKGNAME}"
     if [ ! -d "${PKGDIR}" ]; then
-      echo "*** package not found for ${PSPEC}"
+      warn "*** package not found for ${PSPEC}"
     else
       #echo "packagedir=$PKGDIR"
       # collect info from feed
@@ -640,9 +791,9 @@ p44b_save() {
       #echo "package build dir: ${PKGBUILDDIR}"
       # collect info from build
       if [ ! -d "${PKGBUILDDIR}" ]; then
-        echo "*** ${PKGNAMEVERS}: no build directory found"
+        warn "*** ${PKGNAMEVERS}: no build directory found"
       elif [ ! -e "${PKGBUILDDIR}/.gitdownload_url" ]; then
-        echo "*** ${PKGNAMEVERS}: was not built with p44b checkout revision tracking"
+        warn "*** ${PKGNAMEVERS}: was not built with p44b checkout revision tracking"
       else
         # get info recorded during build
         local BUILDURL=$(cat "${PKGBUILDDIR}/.gitdownload_url")
@@ -661,15 +812,15 @@ p44b_save() {
         fi
         # consistency checks
         if [[ "${BUILDVERS}" != "${PKG_SOURCE_VERSION}" && "${BUILDREV}" != "${PKG_SOURCE_VERSION}" ]]; then
-          echo "*** ${PKGNAMEVERS}: branch/commit recorded in build (${BUILDVERS}) differs from PKG_SOURCE_VERSION (${PKG_SOURCE_VERSION})"
+          warn "*** ${PKGNAMEVERS}: branch/commit recorded in build (${BUILDVERS}) differs from PKG_SOURCE_VERSION (${PKG_SOURCE_VERSION})"
         elif [[ "${PKG_SOURCE_URL}" != "${BUILDURL}" ]]; then
-          echo "*** ${PKGNAMEVERS}: URL recorded in build (${BUILDURL}) differs from PKG_SOURCE_URL (${PKG_SOURCE_URL})"
+          warn "*** ${PKGNAMEVERS}: URL recorded in build (${BUILDURL}) differs from PKG_SOURCE_URL (${PKG_SOURCE_URL})"
         else
           # basic checks ok
-          echo "package ${PKGNAMEVERS}: was built from ${BUILDURL}:${BUILDVERS} (SHA:${BUILDREV})"
+          plain "package ${PKGNAMEVERS}: was built from ${BUILDURL}:${BUILDVERS} (SHA:${BUILDREV})"
           # check if we can trust the GITVERS branch name actually pointing to the built commit
           if [[ "${GITREV}" != "${BUILDREV}" ]]; then
-            echo "*** ${PKGNAMEVERS}: Warning: SHA recorded in build (${BUILDREV}) differs from 'git ls-remote ... ${PKG_SOURCE_VERSION}' (${GITREV})"
+            warn "*** ${PKGNAMEVERS}: Warning: SHA recorded in build (${BUILDREV}) differs from 'git ls-remote ... ${PKG_SOURCE_VERSION}' (${GITREV})"
             echo "# ${PSPEC}: build SHA differs from current 'git ls-remote ... ${PKG_SOURCE_VERSION}' (${GITREV}) - could be due to commits happening since build" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
             echo "# ${PSPEC}: WARNING: There is no branch/tag currently at ${BUILDREV}. We need to checkout whole repo" >>"${PUSHTAGS}"
             GITVERS=
@@ -695,23 +846,35 @@ p44b_save() {
     fi
   done
   echo "popd" >>"${PUSHTAGS}"
+  finished "saving build state"
 }
 
 
-# commit version as currently saved
-p44b_commitversion() {
+help:commitversion() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:}
+
+Create a commit in the feed repository containing the current p44build directory
+containing the currently saved state with a commit named after current version information in .config
+
+The commit message is composed from .config's
+- CONFIG_VERSION_PRODUCT
+- CONFIG_VERSION_NUMBER
+- (optionally)CONFIG_P44_FEED_NAME
+- target ID (as set with ${SCRIPTNAME} target
+
+ENDHELP
+}
+command:commitversion() {
   if [[ $# -ne 0 ]]; then
-    p44b_usage
-    return 1
+    syntax "no arguments expected"
   fi
   if [[ -z "${P44B_SRC_DIR}" || ! -f "${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA" ]]; then
-    echo "Nothing saved, cannot commit"
-    return 1
+    die "Nothing saved, cannot commit"
   fi
   read_config
   if [[ -z "${VERSION_TAG}" ]]; then
-    echo ".config does not contain version information"
-    return 1
+    die ".config does not contain version information"
   fi
   # clean feeds from MacOS folder state files
   find ${BUILDROOT}/feeds -name .DS_Store -delete
@@ -719,62 +882,85 @@ p44b_commitversion() {
   git add -A "${P44B_SRC_DIR}"
   git commit -m "${VERSION_TAG}"
   popd >/dev/null
-  echo "# You might want to amend this commit with changes outside the ${ALIAS} directory"
+  notice "# You might want to amend this commit with changes outside the ${ALIAS} directory"
 }
 
 
 
-# tag the current commit with a version tag
-p44b_tagversion() {
+help:commitversion() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} [-p|--packages]
+
+Tag the current commit in the feed repository containing the current p44build directory
+
+If --packages is specified, ${TRACKING_DIR}/pushtags.sh is also executed (which
+is a script created at ${SCRIPTNAME} save, containing commands to clone a temporary
+checkout of each of the tracked packages, create a tag and push the tag to the
+origin repository. This is useful to tag a project-essential package with the
+same tag as the overall OS version it is used in.
+
+The tag is composed from .config's
+- CONFIG_VERSION_PRODUCT
+- CONFIG_VERSION_NUMBER
+- (optionally)CONFIG_P44_FEED_NAME
+- target ID (as set with ${SCRIPTNAME} target
+
+ENDHELP
+}
+command:tagversion() {
   local DO_TAG_PKGS=0
   for OPT in $@ ; do
     case "$OPT" in
       "-p"|"--packages") DO_TAG_PKGS=1;;
-      *) echo "unknown option $OPT"; return 1;;
+      *) die "unknown option $OPT";;
     esac
   done
   if [[ -z "${P44B_SRC_DIR}" || ! -f "${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA" ]]; then
-    echo "Nothing saved, cannot tag"
-    return 1
+    die "Nothing saved, cannot tag"
   fi
   read_config
   if [[ -z "${VERSION_TAG}" ]]; then
-    echo ".config does not contain version information"
-    return 1
+    die ".config does not contain version information"
   else
-    echo "Tagging: ${VERSION_TAG}"
+    notice "Tagging: ${VERSION_TAG}"
     pushd "${P44B_SRC_DIR}" >/dev/null
     git tag -f "${VERSION_TAG}"
     popd >/dev/null
     # tag tracked packages?
     if [[ ${DO_TAG_PKGS} -ne 0 ]]; then
-      echo "# Tagging tracked packages now:"
-      ${P44B_SRC_DIR}/tracking/pushtags.sh
+      notice "# Tagging tracked packages now:"
+      ${P44B_SRC_DIR}/${TRACKING_DIR}/pushtags.sh
     fi
   fi
 }
 
 
+help:pushversion() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} <remote>
+
+Push the current head of feed repository containing the current p44build directory
+and the current version tag (if any) to the specified remote.
+
+ENDHELP
+}
 # push the current feed's master and the version tag to origin
-p44b_pushversion() {
+command:pushversion() {
   if [[ $# -ne 1 ]]; then
-    p44b_usage
-    return 1
+    syntax "specifiy git remote for pushing"
   fi
   local REMOTE="$1"
   if [[ -z "${P44B_SRC_DIR}" || ! -f "${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA" ]]; then
-    echo "Nothing saved, cannot push"
-    return 1
+    die "Nothing saved, cannot push"
   fi
   read_config
   if [[ -z "${VERSION_TAG}" ]]; then
-    echo ".config does not contain version information"
-    return 1
+    die ".config does not contain version information"
   else
     # detect branch
     pushd "${P44B_SRC_DIR}" >/dev/null
     local BRANCH=$(git rev-parse --abbrev-ref HEAD)
-    echo "Pushing branch '${BRANCH}' and tag '${VERSION_TAG}' -> remote '${REMOTE}'"
+    notice "Pushing branch '${BRANCH}' and tag '${VERSION_TAG}' -> remote '${REMOTE}'"
     git push ${REMOTE} ${BRANCH}
     git push ${REMOTE} -f "${VERSION_TAG}"
     popd >/dev/null
@@ -782,89 +968,176 @@ p44b_pushversion() {
 }
 
 
-
-
 # display status
-p44b_status() {
+help:status() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} status
+
+Displays various status information
+
+ENDHELP
+}
+command:status() {
   if [[ $# -ne 0 ]]; then
-    p44b_usage
-    return 1
+    syntax "no arguments expected"
   fi
   if [ ! -z "${P44B_SRC_DIR}" ]; then
-    echo "Initialized with ${ALIAS} sources at '${P44B_SRC_DIR}'"
-    echo "Current target  : '${TARGET_ID}'"
+    notice "Initialized with ${ALIAS} sources at '${P44B_SRC_DIR}'"
     read_config ".config" # current settings, not saved ones
-    echo "Distribution    : ${CONFIG_VERSION_DIST}"
-    echo "Product         : ${CONFIG_VERSION_PRODUCT}"
-    echo "HW Revision     : ${CONFIG_VERSION_HWREV}"
-    echo "Build dir       : ${BUILD_DIR}"
-    echo "staging_dir     : ${STAGING_ROOT}"
-    echo "toolchain       : ${TOOLCHAIN_ROOT}"
-    echo "target host     : ${TARGET_HOST}"
-    echo "Current version : ${CONFIG_VERSION_NUMBER}"
-    echo "Current feed    : ${CONFIG_P44_FEED_NAME}"
-    read_config # saved settings
-    echo "Saved Version   : ${CONFIG_VERSION_NUMBER}"
-    echo "Saved feed      : ${CONFIG_P44_FEED_NAME}"
-    read_config "${P44B_SRC_DIR}/${CONFIGS_DIR}/diffconfig-${TARGET_ID}" # prepared diffconfig settings
-    echo "Next Version    : ${CONFIG_VERSION_NUMBER}"
-    echo "Next feed       : ${CONFIG_P44_FEED_NAME}"
+    if [[ -z "${TARGET_ID}" || -z "${P44B_SRC_DIR}" ]]; then
+      warn "No target selected -> use ${SCRIPTNAME} target"
+    else
+      info "Target"
+      echo "- Current target  : '${TARGET_ID}'"
+      echo "- Distribution    : ${CONFIG_VERSION_DIST}"
+      echo "- Product         : ${CONFIG_VERSION_PRODUCT}"
+      echo "- HW Revision     : ${CONFIG_VERSION_HWREV}"
+      echo "- board/target    : ${CONFIG_TARGET_BOARD} / ${CONFIG_TARGET_SUBTARGET} / ${CONFIG_TARGET_PROFILE}"
+      echo "- version tag     : ${VERSION_TAG}"
+      echo "- package arch    : ${CONFIG_TARGET_ARCH_PACKAGES}"
+      echo "- target host     : ${TARGET_HOST}"
+      info "Directories"
+      echo "- Build dir       : ${BUILD_DIR}"
+      echo "- staging_dir     : ${STAGING_ROOT}"
+      echo "- toolchain       : ${TOOLCHAIN_ROOT}"
+      info "Current version (configured in .config)"
+      echo "- Current version : ${CONFIG_VERSION_NUMBER}"
+      echo "- Current feed    : ${CONFIG_P44_FEED_NAME}"
+      read_config # saved settings
+      info "Version of last saved .config (${CONFIGS_DIR}/.config-${TARGET_ID})"
+      echo "- Saved Version   : ${CONFIG_VERSION_NUMBER}"
+      echo "- Saved feed      : ${CONFIG_P44_FEED_NAME}"
+      read_config "${P44B_SRC_DIR}/${CONFIGS_DIR}/diffconfig-${TARGET_ID}" # prepared diffconfig settings
+      info "Version as set in ${CONFIGS_DIR}/diffconfig-${TARGET_ID}"
+      echo "- Next Version    : ${CONFIG_VERSION_NUMBER}"
+      echo "- Next feed       : ${CONFIG_P44_FEED_NAME}"
+    fi
   else
-    echo "This tree is not initialized for ${ALIAS} yet"
+    die "This tree is not initialized for ${ALIAS} yet"
   fi
 }
 
 
-p44b_build() {
+help:build() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} [<optional args for build.sh or make>]
+
+If present, calls the build.sh script in the p44build/${SCRIPTS_DIR}
+otherwise, just calls "make" at the buildroot level
+
+ENDHELP
+}
+command:build() {
   local BUILDCMD="${P44B_SRC_DIR}/${SCRIPTS_DIR}/build.sh"
   if [ ! -f "${BUILDCMD}" ]; then
-    echo "no build.sh script in ${ALIAS} folder -> just using make"
+    info "no build.sh script in ${ALIAS} folder -> just using make"
     BUILDCMD="make"
   fi
   # run build script/make
-  echo "===== starting build at $(date +%Y-%m-%d_%H:%M:%S)"
+  set_script_env
+  starting "build"
+  info $BUILDCMD "$@"
   $BUILDCMD "$@"
-  echo "===== finished build at $(date +%Y-%m-%d_%H:%M:%S)"
+  finished "build"
 }
 
 
-p44b_flash() {
+help:flash() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} [<optional args flash.sh>]
+
+calls the flash.sh script in the p44build/${SCRIPTS_DIR}
+
+Note: the BUILT_IMAGE environment variable is set to the full path of the most
+  recently built image for the current target
+
+ENDHELP
+}
+command:flash() {
   local FLASHSCRIPT="${P44B_SRC_DIR}/${SCRIPTS_DIR}/flash.sh"
   if [ ! -x "${FLASHSCRIPT}" ]; then
-    echo "no executable flash.sh script in ${ALIAS} folder"
-    return 1
+    die "no executable flash.sh script in ${ALIAS} folder"
   fi
-  set_script_env
   # run it
+  set_script_env
+  starting "flashing"
+  info $FLASHSCRIPT "$@"
   $FLASHSCRIPT "$@"
+  finished "flashing"
 }
 
 
-p44b_package() {
+help:package() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} [<optional args package.sh>]
+
+calls the package.sh script in the p44build/${SCRIPTS_DIR}
+
+Note: the BUILT_IMAGE environment variable is set to the full path of the most
+  recently built image for the current target
+
+ENDHELP
+}
+command:package() {
   local PKGSCRIPT="${P44B_SRC_DIR}/${SCRIPTS_DIR}/package.sh"
   if [ ! -x "${PKGSCRIPT}" ]; then
-    echo "no executable package.sh script in ${ALIAS} script folder"
-    return 1
+    die "no executable package.sh script in ${ALIAS} script folder"
   fi
   # run it
+  set_script_env
+  starting "packaging"
+  info $PKGSCRIPT "$@"
   $PKGSCRIPT "$@"
+  finished "packaging"
 }
 
 
-p44b_deploy() {
+help:deploy() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} [<optional args deploy.sh>]
+
+calls the deploy.sh script in the p44build/${SCRIPTS_DIR}
+
+Note: the BUILT_IMAGE environment variable is set to the full path of the most
+  recently built image for the current target
+
+ENDHELP
+}
+command:deploy() {
   local DPLSCRIPT="${P44B_SRC_DIR}/${SCRIPTS_DIR}/deploy.sh"
   if [ ! -x "${DPLSCRIPT}" ]; then
-    echo "no executable deploy.sh script in ${ALIAS} script folder"
-    return 1
+    die "no executable deploy.sh script in ${ALIAS} script folder"
   fi
-  set_script_env
   # run it
+  set_script_env
+  starting "deploy"
+  info $DPLSCRIPT "$@"
   $DPLSCRIPT "$@"
+  finished "deploy"
 }
 
 
 
-p44b_buildtargets() {
+help:buildtargets() {
+cat >&2 <<ENDHELP
+Usage:
+  ${SCRIPTNAME} ${FUNCNAME[0]##help:}                      - list available targets
+  ${SCRIPTNAME} ${FUNCNAME[0]##help:} [opts] <targets>...  - build/package/save one or multiple targets
+Options:
+  -t, --tag    : execute 'commitversion' and 'tagversion' subcommands after build and save
+  -p, --push   : execute 'pushversion' subcommand after build and save
+  -d, --deploy : execute 'deploy' subcommand after build and save
+
+Switches to, builds, packages, saves and optionally commits and tags, pushes and deploys the listed <targets>
+
+Note:
+  - "ALL" can be specified instead of target names to build all targets
+  - if existing, p44build/${SCRIPTS_DIR}/buildprep.inc is sourced into the script before
+    starting building, allowing to set extra environment variables for the subsequent steps
+
+ENDHELP
+}
+command:buildtargets() {
   local DO_TAG=0
   local DO_PUSH=0
   local DO_DEPLOY=0
@@ -882,7 +1155,7 @@ p44b_buildtargets() {
   if [ -z "${TARGETS}" ]; then
     # list targets
     TARGETS="${P44B_SRC_DIR}/${CONFIGS_DIR}/diffconfig"*
-    echo "Available targets (specify 'ALL' to build all):"
+    notice "Available targets (specify 'ALL' to build all):"
     for TG in ${TARGETS}; do
       echo "- ${TG##*/diffconfig-}"
     done
@@ -900,44 +1173,56 @@ p44b_buildtargets() {
   if [ -x "${PREPINC}" ]; then
     # source it to set ennvironment vars etc.
     source "${PREPINC}"
+    if [ $? -ne 0 ]; then die "${SCRIPTS_DIR}/buildprep.inc returned failure"; fi
   fi
   # now do targets
   for TARGET in $TARGETS; do
     echo
-    echo "======= Starting target '${TARGET}' at $(date +%Y-%m-%d_%H:%M:%S)"
-    p44b_target "${TARGET}"
-    p44b_build ${P44B_BUILD_ARGS}
-    p44b_package ${P44B_PACKAGE_ARGS}
-    p44b_save
-    if [[ ${DO_DEPLOY} -ne 0 ]]; then
-      p44b_deploy ${P44B_DEPLOY_ARGS}
+    notice "======================================================================="
+    starting "target '${TARGET}'"
+    command:target "${TARGET}" \
+      && command:build ${P44B_BUILD_ARGS} \
+      && command:package ${P44B_PACKAGE_ARGS}
+    local RET=$?
+    if [[ ${RET} -eq 0 ]]; then
+      command:save
+      if [[ ${DO_DEPLOY} -ne 0 ]]; then
+        command:deploy ${P44B_DEPLOY_ARGS}
+      fi
+      if [[ ${DO_TAG} -ne 0 ]]; then
+        command:commitversion
+        command:tagversion ${P44B_TAGVERSION_ARGS}
+      fi
+      if [[ ${DO_PUSH} -ne 0 ]]; then
+        command:pushversion ${P44B_PUSHVERSION_ARGS}
+      fi
     fi
-    if [[ ${DO_TAG} -ne 0 ]]; then
-      p44b_commitversion
-      p44b_tagversion ${P44B_TAGVERSION_ARGS}
-    fi
-    if [[ ${DO_PUSH} -ne 0 ]]; then
-      p44b_pushversion ${P44B_PUSHVERSION_ARGS}
-    fi
-    echo "======= Finished target '${TARGET}' at $(date +%Y-%m-%d_%H:%M:%S)"
+    [[ ${RET} -eq 0 ]]; finished "target '${TARGET}'"
     echo
   done
 }
 
 
 
-p44b_run() {
+help:run() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} <script name>
+
+Runs a script from the p44build/${SCRIPTS_DIR} directory
+The script name can be specified without the ".sh" extension for convenience
+
+ENDHELP
+}
+command:run() {
   if [[ $# -lt 1 ]]; then
-    p44b_usage
-    return 1
+    syntax "specify script to run"
   fi
   local SCRIPT="${P44B_SRC_DIR}/${SCRIPTS_DIR}/$1"
   if [ ! -x "${SCRIPT}" ]; then
     # try with .sh suffix
     SCRIPT="${SCRIPT}.sh"
     if [ ! -x "${SCRIPT}" ]; then
-      echo "no script '$1' in ${ALIAS} script folder"
-      return 1
+      die "no script '$1' in ${ALIAS} script folder"
     fi
   fi
   shift 1
@@ -947,10 +1232,25 @@ p44b_run() {
 }
 
 
-p44b_send() {
+help:send() {
+cat >&2 <<ENDHELP
+Usage:
+- ${SCRIPTNAME} ${FUNCNAME[0]##help:}                        - send the most recently built image for the current target to /tmp on the target
+- ${SCRIPTNAME} ${FUNCNAME[0]##help:} <file>                 - send the specified file to /tmp on the target
+- ${SCRIPTNAME} ${FUNCNAME[0]##help:} [opts] <file> [<dest>] - send the specified file to <dest> (defaults to /tmp) on the target
+Options
+  -e, --executable : file is considered an executable from staging_dir/usr/bin
+  -d, --debuggable : file is considered an executable from staging_dir/usr/bin and will be stripped before sending
+  -p, --package    : file is a package specification in the form feed/package, the first match of "package"
+                     with an actual package .ipk for the current target will be sent.
+Notes:
+- the TARGET_HOST environment variable must be set to the hostname or IP address of the target
+
+ENDHELP
+}
+command:send() {
   if [[ -z "${TARGET_HOST}" ]]; then
-    echo "Need to define TARGET_HOST shell variable"
-    return 1
+    die "Need to define TARGET_HOST shell variable"
   fi
   local SRCFILE=""
   local SRCSUFFIX=""
@@ -958,10 +1258,10 @@ p44b_send() {
   read_config ".config" # current settings, not saved ones
   while [[ "${1:0:1}" == "-" ]]; do
     case "$1" in
-#      "-p"|"--package") SRCFILE="bin/packages/mipsel_24kc/plan44/", SRCSUFFIX='*.ipk';shift 1;;
+      "-p"|"--package") SRCFILE="${BUILDROOT}/bin/packages/${CONFIG_TARGET_ARCH_PACKAGES}/"; SRCSUFFIX='*'"_${CONFIG_TARGET_ARCH_PACKAGES}.ipk";shift 1;;
       "-e"|"--executable") SRCFILE="${STAGING_ROOT}/usr/bin/" ;shift 1;;
       "-d"|"--debuggable") SRCFILE="${STAGING_ROOT}/usr/bin/" ; DO_STRIP=1; shift 1;;
-      *) echo "unknown option $1";return 1;;
+      *) syntax "unknown option $1";;
     esac
   done
   if [[ $# -eq 0 ]]; then
@@ -980,52 +1280,77 @@ p44b_send() {
     SRCFILE="${SRCFILE}$1"
     local TARGPATH=$2
   else
-    p44b_usage
-    return 1
+    syntax "no more than 2 arguments expected"
+  fi
+  # expand suffix with wildcards
+  if [ -n "$SRCSUFFIX" ]; then
+    local S=$(ls -1t ${SRCFILE}${SRCSUFFIX});
+    set -- $S
+    SRCFILE="$1"
   fi
   if [ ! -f "${SRCFILE}" ]; then
-    echo "No file found to send"
-    return 1
+    die "No file found to send"
   fi
   if [[ ${DO_STRIP} -ne 0 ]]; then
-    echo "# Stripping symbols from ${SRCFILE}"
+    notice "# Stripping symbols from ${SRCFILE}"
     "${TOOLCHAIN_ROOT}/binutils/binutils/strip-new" -o /tmp/debugtarget "${SRCFILE}"
     SRCFILE="/tmp/debugtarget"
   fi
-  echo "# Sending: ${SRCFILE} to ${TARGET_HOST}:${TARGPATH}"
-  echo "scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ${SRCFILE} root@${TARGET_HOST}:${TARGPATH}"
+  notice "=== Sending: ${SRCFILE}"
+  notice "         to: ${TARGET_HOST}:${TARGPATH}"
+  info "scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ${SRCFILE} root@${TARGET_HOST}:${TARGPATH}"
   scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "${SRCFILE}" "root@${TARGET_HOST}:${TARGPATH}"
-  echo "...done"
+  finished "sending"
 }
 
 
-p44b_debug() {
+help:debug() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} <executable>
+
+Starts debugging a executable
+- sends stripped executable to TARGET_HOST (using ${SCRIPTNAME} send -d <executable>) as /tmp/debugtarget
+- starts remote debugging via ./scripts/remote-gdb
+
+Notes:
+- the TARGET_HOST environment variable must be set to the hostname or IP address of the target
+
+ENDHELP
+}
+command:debug() {
   if [[ $# -eq 0 ]]; then
-    echo "need to specify executable"
-    return 1
+    die "need to specify executable"
   fi
   local EXECNAME=$1
-  p44b_send -d ${EXECNAME}
+  command:send -d ${EXECNAME}
   local EXECS=$(ls -1t ${BUILDROOT}/build_dir/${TARGETID}/${EXECNAME}-*/${EXECNAME})
   set -- $EXECS
   local EXEC=$1
-  echo "# Debugging: ${EXEC} - paste next line into gdb"
-  echo "set remote exec-file /tmp/debugtarget"
+  notice "=== Debugging: ${EXEC} - paste next line into gdb"
+  plain "set remote exec-file /tmp/debugtarget"
   ${BUILDROOT}/scripts/remote-gdb ${TARGET_HOST}:9000 ${EXEC}
-  echo "# done debugging ${EXEC}"
+  finished "debugging ${EXEC}"
 }
 
 
+help:get() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} <remote file> [<local destination>]
 
+gets a <remote file> from the TARGET_HOST.
+By default, the file is stored to /tmp, or to <local destinatio> if specified.
 
-p44b_get() {
+Notes:
+- the TARGET_HOST environment variable must be set to the hostname or IP address of the target
+
+ENDHELP
+}
+command:get() {
   if [[ -z "${TARGET_HOST}" ]]; then
-    echo "Need to define TARGET_HOST shell variable"
-    return 1
+    die "Need to define TARGET_HOST shell variable"
   fi
   if [[ $# -lt 1 || $# -gt 2 ]]; then
-    p44b_usage
-    return 1
+    syntax "need to specify source"
   fi
   SRCFILE="$1"
   if [[ $# -eq 1 ]]; then
@@ -1034,149 +1359,123 @@ p44b_get() {
     local DESTDIR="$2"
   fi
   if [[ ! -d "${DESTDIR}" ]]; then
-    echo "${DESTDIR} is not a directory"
-    return 1
+    die "${DESTDIR} is not a directory"
   fi
-  echo "# Getting: ${TARGET_HOST}:${SRCFILE} to ${DESTDIR}"
-  echo "scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no root@${TARGET_HOST}:${SRCFILE} ${DESTDIR}"
+  notice "=== Getting: ${TARGET_HOST}:${SRCFILE}"
+  notice "         to: ${DESTDIR}"
+  info "scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no root@${TARGET_HOST}:${SRCFILE} ${DESTDIR}"
   scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "root@${TARGET_HOST}:${SRCFILE}" "${DESTDIR}"
-  echo "...done"
+  finished "getting file to ${DESTDIR}"
 }
 
 
 
-p44b_login() {
+help:login() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} [<host>]
+
+login via ssh to specified <host> or by default to TARGET_HOST.
+
+Notes:
+- the TARGET_HOST environment variable must be set to the hostname or IP address of the target
+
+ENDHELP
+}
+command:login() {
   if [[ $# -eq 0 ]]; then
     if [[ -z "${TARGET_HOST}" ]]; then
-      echo "Specify host as parameter or define TARGET_HOST shell variable"
-      return 1
+      die "Specify host as parameter or define TARGET_HOST shell variable"
     fi
     local HOST="${TARGET_HOST}"
   elif [[ $# -eq 1 ]]; then
     local HOST="$1"
   else
-    p44b_usage
-    return 1
+    syntax "need to specify host name or IP address"
   fi
-  echo "# connecting to ${HOST}:"
-  echo "ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no root@${TARGET_HOST}"
+  notice "=== connecting to ${HOST}:"
+  info "ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no root@${TARGET_HOST}"
   ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no root@${TARGET_HOST}
 }
 
 
 
-p44b_test() {
-  echo "dummy"
+help:test() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:}
+
+dummy test command!
+
+ENDHELP
+}
+command:test() {
+  notice "dummy"
 }
 
 
 # usage
-p44b_usage() {
-  echo "usage: ${SCRIPTNAME} status                            - show status"
-  echo "   or: ${SCRIPTNAME} cleanup                           - clean up buildroot"
-  echo "   or: ${SCRIPTNAME} init <srcdir>                     - initialize buildroot from a ${ALIAS} source directory"
-  echo "   or: ${SCRIPTNAME} switch <srcdir>                   - (try to) switch to a ${ALIAS} source directory w/o changing buildroot (possible if patches are equal)"
-  echo "   or: ${SCRIPTNAME} prepare                           - prepare (patch) tree from ${ALIAS} info"
-  echo "   or: ${SCRIPTNAME} instpkg                           - install those packages from feeds that were present at last ${ALIAS} save"
-  echo "   or: ${SCRIPTNAME} target [<target>]                 - list targets or switch to specified target configuration"
-  echo "   or: ${SCRIPTNAME} build [<args>...]                 - call build.sh script if existing, otherwise just call make, with optional args"
-  echo "   or: ${SCRIPTNAME} package [<args>...]               - call package.sh script with with optional args"
-  echo "   or: ${SCRIPTNAME} deploy [<args>...]                - call deploy.sh script with optional args"
-  echo "   or: ${SCRIPTNAME} flash [<args>...]                 - call flash.sh script with optional args"
-  echo "   or: ${SCRIPTNAME} save                              - save current build's SHAs of buildroot and tracked packages"
-  echo "   or: ${SCRIPTNAME} restore [--sha][--apply] (root|feeds|packages)  - restore saved state, --apply to actually modify, --sha to use sha, not branch names"
-  echo "   or: ${SCRIPTNAME} send [-e|-d] [<file> [<remote path>]]  - send [[-d:stripped]-e:executable] <file> (default: built image for current target) to \$TARGET_HOST via scp (default path: /tmp)"
-  echo "   or: ${SCRIPTNAME} debug <package>                   - send <package>'s executable (stripped) and start gdb session for it"
-  echo "   or: ${SCRIPTNAME} get <remote file> [<dir>]         - get <remote file> to local <dir> (default: /tmp) from \$TARGET_HOST via scp"
-  echo "   or: ${SCRIPTNAME} login [<host>]                    - connect to specified host or TARGET_HOST via ssh w/o identity checking"
-  echo "   or: ${SCRIPTNAME} commitversion                     - commit the currently saved version to the feed the ${ALIAS} source directory is in"
-  echo "   or: ${SCRIPTNAME} tagversion [-p|--packages]        - tag the currently saved and committed version (-p: including tracked packages)"
-  echo "   or: ${SCRIPTNAME} pushversion <remote>              - push the currently checked out branch and the version tag to remote"
-  echo "   or: ${SCRIPTNAME} buildtargets [opts] <targets>...  - switch to, build, package, save <targets>; [--deploy] with deploy, [--tag] with commit+tag, [--push] with push"
-  echo "   or: ${SCRIPTNAME} run <script> [<args>...]          - run script from ${ALIAS} scripts folder"
+command:usage() {
+  notice "Usage:"
+  echo "  ${SCRIPTNAME} <command> --help                 - show help for <command>"
+  info "Setup and cleanup"
+  echo "  ${SCRIPTNAME} init <srcdir>                    - initialize buildroot from a ${ALIAS} source directory"
+  echo "  ${SCRIPTNAME} switch <srcdir>                  - (try to) switch to a ${ALIAS} source directory w/o changing buildroot (possible if patches are equal)"
+  echo "  ${SCRIPTNAME} prepare                          - prepare (patch) tree from ${ALIAS} info"
+  echo "  ${SCRIPTNAME} instpkg                          - install those packages from feeds that were present at last ${ALIAS} save"
+  echo "  ${SCRIPTNAME} restore [opts] <what>...         - restore saved state, --apply to actually modify"
+  echo "  ${SCRIPTNAME} cleanup                          - clean up buildroot"
+  info "Build commands (in usual sequence)"
+  echo "  ${SCRIPTNAME} target [<target>]                - list targets or switch to specified target configuration"
+  echo "  ${SCRIPTNAME} build [<args>...]                - call build.sh script if existing, otherwise just call make, with optional args"
+  echo "  ${SCRIPTNAME} package [<args>...]              - call package.sh script with with optional args"
+  echo "  ${SCRIPTNAME} deploy [<args>...]               - call deploy.sh script with optional args"
+  echo "  ${SCRIPTNAME} flash [<args>...]                - call flash.sh script with optional args"
+  echo "  ${SCRIPTNAME} save                             - save current build's SHAs of buildroot and tracked packages"
+  echo "  ${SCRIPTNAME} commitversion                    - commit the currently saved version to the feed the ${ALIAS} source directory is in"
+  echo "  ${SCRIPTNAME} tagversion [-p|--packages]       - tag the currently saved and committed version"
+  echo "  ${SCRIPTNAME} pushversion <remote>             - push the currently checked out branch and the version tag to remote"
+  info "Automated build of multiple targets"
+  echo "  ${SCRIPTNAME} buildtargets [opts] <targets>... - switch to, build, package, save, commit, tag, deploy <targets>"
+  info "Testing and debugging"
+  echo "  ${SCRIPTNAME} send [opts] <file> [<remote>]    - send file/executable/package/debuggable to target"
+  echo "  ${SCRIPTNAME} debug [<executable>]             - start debugging <executable> with gdb"
+  echo "  ${SCRIPTNAME} get <file> [<remote>]            - get <remote file> to local <dir> (default: /tmp) from \$TARGET_HOST via scp"
+  echo "  ${SCRIPTNAME} login [<host>]                   - connect to specified host or TARGET_HOST via ssh w/o identity checking"
+  echo "  ${SCRIPTNAME} run <script> [<args>...]         - run script from ${ALIAS} scripts folder"
+  echo ""
 }
 
 
 # main
 if [[ $# -lt 1 ]]; then
-  p44b_usage
+  command:usage
   exit 1
 fi
+# global options
+for OPT in $@ ; do
+  case "$OPT" in
+    "-h"|"--help") command:usage; exit 0;;
+    *) break 2;;
+  esac
+done
 COMMAND="$1"
 shift 1
-case ${COMMAND} in
-  "status")
-    p44b_status "$@"
-    ;;
-  "init")
-    p44b_init "$@"
-    ;;
-  "switch")
-    p44b_switch "$@"
-    ;;
-  "cleanup")
-    p44b_cleanup "$@"
-    ;;
-  "prepare")
-    p44b_prepare "$@"
-    ;;
-  "instpkg")
-    p44b_instpkg "$@"
-    ;;
-  "target")
-    p44b_target "$@"
-    ;;
-  "build")
-    p44b_build "$@"
-    ;;
-  "flash")
-    p44b_flash "$@"
-    ;;
-  "package")
-    p44b_package "$@"
-    ;;
-  "deploy")
-    p44b_deploy "$@"
-    ;;
-  "send")
-    p44b_send "$@"
-    ;;
-  "debug")
-    p44b_debug "$@"
-    ;;
-  "get")
-    p44b_get "$@"
-    ;;
-  "login")
-    p44b_login "$@"
-    ;;
-  "save")
-    p44b_save "$@"
-    ;;
-  "restore")
-    p44b_restore "$@"
-    ;;
-  "commitversion")
-    p44b_commitversion "$@"
-    ;;
-  "tagversion")
-    p44b_tagversion "$@"
-    ;;
-  "pushversion")
-    p44b_pushversion "$@"
-    ;;
-  "buildtargets")
-    p44b_buildtargets "$@"
-    ;;
-  "run")
-    p44b_run "$@"
-    ;;
-  "test")
-    p44b_test "$@"
-    ;;
-  *)
-    echo "Unknown subcommand '${COMMAND}'"
-    p44b_usage
-    exit 1
-    ;;
-esac
+# per command help
+for OPT in $@ ; do
+  case "$OPT" in
+    "-h"|"--help")
+      if has help ${COMMAND}; then
+        help:${COMMAND}
+      else
+        info "no additional help for command '${COMMAND}'"
+      fi
+      exit 0;;
+  esac
+done
+# run commands
+if has command ${COMMAND}; then
+  command:${COMMAND} $@
+else
+  err "Unknown subcommand '${COMMAND}'"
+  command:usage
+  exit 1
+fi
