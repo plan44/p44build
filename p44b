@@ -163,16 +163,20 @@ read_config()
 set_script_env()
 {
   # publish some environment variables for called scripts
+  # - most recently built image
   read_config ".config" # current settings, not saved ones
-  local SRCIMGS=$(ls -1t ${BUILDROOT}/bin/targets/${CONFIG_TARGET_BOARD}/${CONFIG_TARGET_SUBTARGET}/${IMG_DIST_NAME_LC}-${CONFIG_VERSION_NUMBER}*-${CONFIG_TARGET_BOARD}-${CONFIG_TARGET_SUBTARGET}-${CONFIG_TARGET_PROFILE##DEVICE_}-*);
-  set -- $SRCIMGS
-  # publish in environment for called scripts/commands
+  local SRCIMGS=$(ls -1t ${BUILDROOT}/bin/targets/${CONFIG_TARGET_BOARD}/${CONFIG_TARGET_SUBTARGET}/${IMG_DIST_NAME_LC}-${CONFIG_VERSION_NUMBER}*-${CONFIG_TARGET_BOARD}-${CONFIG_TARGET_SUBTARGET}-${CONFIG_TARGET_PROFILE##DEVICE_}-* 2>/dev/null);
+  if [[ $? -eq 0 ]]; then
+    set -- $SRCIMGS
+    export BUILT_IMAGE=$1
+  fi
+  # - also publish some dirs with P44B_ prefix for convenience in called scripts/commands
+  export BUILDROOT
   export P44B_SRC_DIR
   export P44B_CONFIGS_DIR="${P44B_SRC_DIR}/${CONFIGS_DIR}"
   export P44B_TRACKING_DIR="${P44B_SRC_DIR}/${TRACKING_DIR}"
   export P44B_SCRIPTS_DIR="${P44B_SRC_DIR}/${SCRIPTS_DIR}"
   export P44B_GLOBAL_PATCHES_DIR="${P44B_SRC_DIR}/${GLOBAL_PATCHES_DIR}"
-  export BUILT_IMAGE=$1
 }
 
 
@@ -1028,6 +1032,7 @@ otherwise, just calls "make" at the buildroot level
 ENDHELP
 }
 command:build() {
+  starting "build"
   local BUILDCMD="${P44B_SRC_DIR}/${SCRIPTS_DIR}/build.sh"
   if [ ! -f "${BUILDCMD}" ]; then
     info "no build.sh script in ${ALIAS} folder -> just using make"
@@ -1035,7 +1040,6 @@ command:build() {
   fi
   # run build script/make
   set_script_env
-  starting "build"
   info $BUILDCMD "$@"
   $BUILDCMD "$@"
   finished "build"
