@@ -85,6 +85,11 @@ BUILDROOT="$(pwd -P)"
 # the alias name to be used for referring to the script
 ALIAS="p44b"
 
+# defaults
+if [ -z ${P44B_IMAGETYPE+x} ]; then
+  P44B_IMAGETYPE="squashfs-sysupgrade"
+fi
+
 # actual script location and file
 SCRIPTDIR="$(dirname $0)"
 pushd ${SCRIPTDIR} >/dev/null
@@ -165,13 +170,14 @@ set_script_env()
   # publish some environment variables for called scripts
   # - most recently built image
   read_config ".config" # current settings, not saved ones
-  local SRCIMGS=$(ls -1t ${BUILDROOT}/bin/targets/${CONFIG_TARGET_BOARD}/${CONFIG_TARGET_SUBTARGET}/${IMG_DIST_NAME_LC}-${CONFIG_VERSION_NUMBER}*-${CONFIG_TARGET_BOARD}-${CONFIG_TARGET_SUBTARGET}-${CONFIG_TARGET_PROFILE##DEVICE_}-* 2>/dev/null);
+  local SRCIMGS=$(ls -1t ${BUILDROOT}/bin/targets/${CONFIG_TARGET_BOARD}/${CONFIG_TARGET_SUBTARGET}/${IMG_DIST_NAME_LC}-${CONFIG_VERSION_NUMBER}*-${CONFIG_TARGET_BOARD}-${CONFIG_TARGET_SUBTARGET}-${CONFIG_TARGET_PROFILE##DEVICE_}-${P44B_IMAGETYPE}* 2>/dev/null);
   if [[ $? -eq 0 ]]; then
     set -- $SRCIMGS
     export BUILT_IMAGE=$1
   fi
   # - also publish some dirs with P44B_ prefix for convenience in called scripts/commands
   export BUILDROOT
+  export P44B_IMAGETYPE
   export P44B_SRC_DIR
   export P44B_CONFIGS_DIR="${P44B_SRC_DIR}/${CONFIGS_DIR}"
   export P44B_TRACKING_DIR="${P44B_SRC_DIR}/${TRACKING_DIR}"
@@ -1230,8 +1236,9 @@ command:run() {
     fi
   fi
   shift 1
-  set_script_env
   # run it
+  set_script_env
+  info $SCRIPT "$@"
   $SCRIPT "$@"
 }
 
