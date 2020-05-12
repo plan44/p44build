@@ -1484,7 +1484,7 @@ for OPT in $@ ; do
 done
 # run commands
 if has command ${COMMAND}; then
-  command:${COMMAND} $@
+  command:${COMMAND} "$@"
 else
   err "Unknown subcommand '${COMMAND}'"
   command:usage
