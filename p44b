@@ -679,183 +679,222 @@ command:restore() {
 help:save() {
 cat >&2 <<ENDHELP
 Usage:
-  ${SCRIPTNAME} ${FUNCNAME[0]##help:}
+  ${SCRIPTNAME} ${FUNCNAME[0]##help:} [options]
 
-Saves the current build state into the p44build/${TRACKING_DIR} consisting of:
-- SHA of OpenWrt
-- copy of feeds.conf as a reference
-- diffconfig for current target
-- SHA and symbolic rev of feeds
-- SHA and symbolic rev of specified packages
-- a script for installing currently used packages from feeds (install_packages.sh)
+Saves the current build state into the p44build/${TRACKING_DIR}. See options
+for the items that can be saved. Specifying no options saves all items.
+
+Options:
+  -b, --buildroot : save buildroot state (SHA + symbolic rev)
+  -c, --config    : save config & diffconfig for current target, feeds.conf
+  -p, --packages  : save script to re-install all packages in use
+  -f, --feeds     : save state (SHA + symbolic rev) of all feeds
+  -t, --track     : track source git SHA + symbolic rev of packages listed in
+                    tracked_packages, create ${TRACKING_DIR}/pushtags.sh
 
 Committing these saved items to the project's feed repository captures all
 information to reproduce this particular build later.
 
-${SCRIPTNAME} restore can be used to re-establish a saved state.
+${SCRIPTNAME} restore can be used to re-establish a saved state later.
 
 ENDHELP
 }
 command:save() {
+  local SAVECONFIG=0
+  local SAVEBUILDROOT=0
+  local SAVEINSTPKG=0
+  local SAVEFEEDS=0
+  local SAVETRACK=0
+  while [[ "${1:0:1}" == "-" ]]; do
+    case "$1" in
+      "-b"|"--buildroot") SAVEBUILDROOT=1;shift 1;;
+      "-c"|"--config") SAVECONFIG=1;shift 1;;
+      "-p"|"--packages") SAVEINSTPKG=1;shift 1;;
+      "-f"|"--feeds") SAVEFEEDS=1;shift 1;;
+      "-t"|"--track") SAVETRACK=1;shift 1;;
+      *) syntax "unknown option $1";;
+    esac
+  done
+  if [[ ${SAVEBUILDROOT} -eq 0 && ${SAVECONFIG} -eq 0 && ${SAVEINSTPKG} -eq 0 && ${SAVEFEEDS} -eq 0 && ${SAVETRACK} -eq 0  ]]; then
+    SAVEBUILDROOT=1
+    SAVECONFIG=1
+    SAVEINSTPKG=1
+    SAVEFEEDS=1
+    SAVETRACK=1
+  fi
   if [[ $# -ne 0 ]]; then
     syntax "no arguments expected"
   fi
   if [[ -z "${TARGET_ID}" || -z "${P44B_SRC_DIR}" ]]; then
     die "No target selected, cannot save"
   fi
-  pushd ${BUILDROOT} >/dev/null
-  # clean feeds from MacOS folder state files
-  find ${BUILDROOT}/feeds -name .DS_Store -delete
-  # SHA and branch of buildroot
-  mkdir "${P44B_SRC_DIR}/${TRACKING_DIR}" 2>/dev/null
-  local GITREV=$(git rev-parse HEAD)
-  local GITVERS=$(git rev-parse --abbrev-ref HEAD)
+  # Preparation we always need:
   starting "saving build state"
-  info "=== saving current buildroot state (SHA/rev)"
-  plain "openwrt buildroot: built from ${GITVERS} (SHA:${GITREV})"
-  echo "${GITREV}" >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA"
-  echo "${GITVERS}" >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_VERS"
-  # current feeds.conf
-  cp feeds.conf "${P44B_SRC_DIR}/${TRACKING_DIR}/feeds.conf-snapshot"
-  # diffconfig for current target
-  local CONFIGDIR="${P44B_SRC_DIR}/${CONFIGS_DIR}"
-  ./scripts/diffconfig.sh >"${CONFIGDIR}/diffconfig-${TARGET_ID}"
-  # complete config for reference purposes
-  info "=== saving installed packages into ${TRACKING_DIR}/install_packages.sh"
-  cp .config "${CONFIGDIR}/.config-${TARGET_ID}"
-  popd >/dev/null
-  # Capture installed packages from feeds (as a script that can be run to update feeds and install the packages)
-  local INSTPKGS="${P44B_SRC_DIR}/${TRACKING_DIR}/install_packages.sh"
-  echo "# Run this script to install all packages that were installed at the time of p44b save" >"${INSTPKGS}"
-  FEEDS=$(find ${BUILDROOT}/package/feeds -type d -depth 1 -exec "echo" "{}" ";")
-  for FEED in ${FEEDS}; do
-    FEEDNAME=$(basename ${FEED})
-    #echo "--- feed=${FEEDNAME} dir=${FEED}"
-    pushd ${FEED} >/dev/null
-    echo "./scripts/feeds update ${FEEDNAME}" >>"${INSTPKGS}"
-    for INSTPDIR in *; do
-      #echo "---   instpdir=${INSTPDIR}"
-      local CMNT=""
-      local INSTPNAMES=$(sed -E -n -e "/^Source-Makefile: +feeds\/${FEEDNAME}.*\/${INSTPDIR}\/Makefile/,/^Source-Makefile:/s/^Package: +([-a-zA-Z_]+)/\1/p" ${BUILDROOT}/feeds/${FEEDNAME}.index)
-      for INSTPNAME in ${INSTPNAMES}; do
-        #echo "---     instpname=${INSTPNAME}"
-        echo "${CMNT}./scripts/feeds install -p ${FEEDNAME} ${INSTPNAME}" >>"${INSTPKGS}"
-        # installing one of the packages from a makefile is sufficient, show but comment out the other packages made available as well
-        CMNT="#"
-      done
-    done
-    popd >/dev/null
-  done
-  # Capture state of feeds
-  info "=== saving feed states"
-  plain "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_VERS"
-  plain "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_SHA"
-  pushd "${BUILDROOT}/feeds" >/dev/null
-  for FEED in !(*.*) ; do
-    pushd "${FEED}" >/dev/null
-    local GITURL=$(git remote show origin | sed -ne "/Fetch URL:/s/ *Fetch URL: //p")
+  pushd ${BUILDROOT} >/dev/null
+  # - clean feeds from MacOS folder state files
+  find ${BUILDROOT}/feeds -name .DS_Store -delete
+  # - make sure we have the tracking dir
+  mkdir "${P44B_SRC_DIR}/${TRACKING_DIR}" 2>/dev/null
+  # Now the different steps
+  if [[ ${SAVEBUILDROOT} -eq 1 ]]; then
+    # SHA and branch of buildroot
+    info "=== saving current buildroot state (SHA/rev)"
     local GITREV=$(git rev-parse HEAD)
     local GITVERS=$(git rev-parse --abbrev-ref HEAD)
-    plain "feed ${FEED}: origin at ${GITURL}:${GITVERS} (SHA:${GITREV})"
-    echo "${FEED} ${GITURL}:${GITVERS}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_VERS"
-    echo "${FEED} ${GITURL}:${GITREV}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_SHA"
-    popd >/dev/null
-  done
-  popd >/dev/null
-  # Track package source SHAs/versions
-  info "=== saving tracked package states"
-  read_config
-  # go through tracked packages
-  if [ ! -f "${P44B_SRC_DIR}/tracked_packages" ]; then
-    notice "no tracked_packages file -> nothing to track"
-    return 0
+    plain "openwrt buildroot: built from ${GITVERS} (SHA:${GITREV})"
+    echo "${GITREV}" >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA"
+    echo "${GITVERS}" >"${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_VERS"
   fi
-  local PACKAGES=$(cat "${P44B_SRC_DIR}/tracked_packages");
-  # remove the previous trackings
-  echo "# feed/package giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_VERS"
-  echo "# feed/package giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
-  local PUSHTAGS="${P44B_SRC_DIR}/${TRACKING_DIR}/pushtags.sh"
-  echo "#!/bin/bash" >"${PUSHTAGS}"
-  echo "pushd /tmp; rm -rf /tmp/p44b_temp; mkdir p44b_temp; cd p44b_temp" >>"${PUSHTAGS}"
-  for PSPEC in ${PACKAGES}; do
-    local FEEDNAME=${PSPEC%%/*}
-    local PKGNAME=${PSPEC#*/}
-    #echo "feed=$FEEDNAME pgk=$PKGNAME"
-    local PKGDIR="${BUILDROOT}/feeds/${FEEDNAME}/${PKGNAME}"
-    if [ ! -d "${PKGDIR}" ]; then
-      warn "*** package not found for ${PSPEC}"
-    else
-      #echo "packagedir=$PKGDIR"
-      # collect info from feed
-      local PKG_NAME=$(sed -n -e "/^PKG_NAME:=/s/PKG_NAME:=//p" "${PKGDIR}/Makefile")
-      local PKG_VERSION=$(sed -n -e "/^PKG_VERSION:=/s/PKG_VERSION:=//p" "${PKGDIR}/Makefile")
-      local PKG_SOURCE_URL=$(sed -n -e "/^PKG_SOURCE_URL:=/s/PKG_SOURCE_URL:=//p" "${PKGDIR}/Makefile")
-      local PKG_SOURCE_VERSION=$(sed -n -e "/^PKG_SOURCE_VERSION:=/s/PKG_SOURCE_VERSION:=//p" "${PKGDIR}/Makefile")
-      local PKGNAMEVERS="${PKG_NAME}-${PKG_VERSION}"
-      # build-dir as defined in makefile
-      local PD=$(sed -n -e "/^PKG_BUILD_DIR:=/s/PKG_BUILD_DIR:=//p" "${PKGDIR}/Makefile")
-      local PD=${PD//\$\(/\$\{}
-      local PD=${PD//\)/\}}
-      eval PKGBUILDDIR="$PD"
-      #echo "PKG_NAME=$PKG_NAME, PKG_VERSION=$PKG_VERSION, PKG_SOURCE_VERSION=$PKG_SOURCE_VERSION, PD=$PD"
-      #echo "package build dir: ${PKGBUILDDIR}"
-      # collect info from build
-      if [ ! -d "${PKGBUILDDIR}" ]; then
-        warn "*** ${PKGNAMEVERS}: no build directory found"
-      elif [ ! -e "${PKGBUILDDIR}/.gitdownload_url" ]; then
-        warn "*** ${PKGNAMEVERS}: was not built with p44b checkout revision tracking"
+  if [[ ${SAVECONFIG} -eq 1 ]]; then
+    # current feeds.conf
+    info "=== saving .config-${TARGET_ID} and diffconfig-${TARGET_ID} into ${CONFIGS_DIR}"
+    cp feeds.conf "${P44B_SRC_DIR}/${TRACKING_DIR}/feeds.conf-snapshot"
+    # diffconfig for current target
+    local CONFIGDIR="${P44B_SRC_DIR}/${CONFIGS_DIR}"
+    ./scripts/diffconfig.sh >"${CONFIGDIR}/diffconfig-${TARGET_ID}"
+    # complete config for reference purposes
+    cp .config "${CONFIGDIR}/.config-${TARGET_ID}"
+  fi
+  popd >/dev/null
+  if [[ ${SAVEINSTPKG} -eq 1 ]]; then
+    # Capture installed packages from feeds (as a script that can be run to update feeds and install the packages)
+    info "=== saving installed packages into ${TRACKING_DIR}/install_packages.sh"
+    local INSTPKGS="${P44B_SRC_DIR}/${TRACKING_DIR}/install_packages.sh"
+    echo "# Run this script to install all packages that were installed at the time of p44b save" >"${INSTPKGS}"
+    FEEDS=$(find ${BUILDROOT}/package/feeds -type d -depth 1 -exec "echo" "{}" ";")
+    for FEED in ${FEEDS}; do
+      FEEDNAME=$(basename ${FEED})
+      #echo "--- feed=${FEEDNAME} dir=${FEED}"
+      pushd ${FEED} >/dev/null
+      echo "./scripts/feeds update ${FEEDNAME}" >>"${INSTPKGS}"
+      for INSTPDIR in *; do
+        #echo "---   instpdir=${INSTPDIR}"
+        local CMNT=""
+        local INSTPNAMES=$(sed -E -n -e "/^Source-Makefile: +feeds\/${FEEDNAME}.*\/${INSTPDIR}\/Makefile/,/^Source-Makefile:/s/^Package: +([-a-zA-Z_]+)/\1/p" ${BUILDROOT}/feeds/${FEEDNAME}.index)
+        for INSTPNAME in ${INSTPNAMES}; do
+          #echo "---     instpname=${INSTPNAME}"
+          echo "${CMNT}./scripts/feeds install -p ${FEEDNAME} ${INSTPNAME}" >>"${INSTPKGS}"
+          # installing one of the packages from a makefile is sufficient, show but comment out the other packages made available as well
+          CMNT="#"
+        done
+      done
+      popd >/dev/null
+    done
+  fi
+  if [[ ${SAVEFEEDS} -eq 1 ]]; then
+    # Capture state of feeds
+    info "=== saving feed states"
+    plain "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_VERS"
+    plain "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_SHA"
+    pushd "${BUILDROOT}/feeds" >/dev/null
+    for FEED in !(*.*) ; do
+      pushd "${FEED}" >/dev/null
+      local GITURL=$(git remote show origin | sed -ne "/Fetch URL:/s/ *Fetch URL: //p")
+      local GITREV=$(git rev-parse HEAD)
+      local GITVERS=$(git rev-parse --abbrev-ref HEAD)
+      plain "feed ${FEED}: origin at ${GITURL}:${GITVERS} (SHA:${GITREV})"
+      echo "${FEED} ${GITURL}:${GITVERS}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_VERS"
+      echo "${FEED} ${GITURL}:${GITREV}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_SHA"
+      popd >/dev/null
+    done
+    popd >/dev/null
+  fi
+  if [[ ${SAVETRACK} -eq 1 ]]; then
+    # Track package source SHAs/versions
+    info "=== saving tracked package states"
+    read_config
+    # go through tracked packages
+    if [ ! -f "${P44B_SRC_DIR}/tracked_packages" ]; then
+      notice "no tracked_packages file -> nothing to track"
+      return 0
+    fi
+    local PACKAGES=$(cat "${P44B_SRC_DIR}/tracked_packages");
+    # remove the previous trackings
+    echo "# feed/package giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_VERS"
+    echo "# feed/package giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
+    local PUSHTAGS="${P44B_SRC_DIR}/${TRACKING_DIR}/pushtags.sh"
+    echo "#!/bin/bash" >"${PUSHTAGS}"
+    echo "pushd /tmp; rm -rf /tmp/p44b_temp; mkdir p44b_temp; cd p44b_temp" >>"${PUSHTAGS}"
+    for PSPEC in ${PACKAGES}; do
+      local FEEDNAME=${PSPEC%%/*}
+      local PKGNAME=${PSPEC#*/}
+      #echo "feed=$FEEDNAME pgk=$PKGNAME"
+      local PKGDIR="${BUILDROOT}/feeds/${FEEDNAME}/${PKGNAME}"
+      if [ ! -d "${PKGDIR}" ]; then
+        warn "*** package not found for ${PSPEC}"
       else
-        # get info recorded during build
-        local BUILDURL=$(cat "${PKGBUILDDIR}/.gitdownload_url")
-        local BUILDREV=$(cat "${PKGBUILDDIR}/.gitdownload_rev")
-        local BUILDVERS=$(cat "${PKGBUILDDIR}/.gitdownload_version")
-        # get info from source repo
-        if [[ "${BUILDREV}" != "${BUILDVERS}" && "${PKG_SOURCE_VERSION}" != "${BUILDREV}" ]]; then
-          # vers is a ref (branch, tag) that can move -> get the SHA of that ref from the git source repo
-          local R=$(git ls-remote "${PKG_SOURCE_URL}" "${PKG_SOURCE_VERSION}")
-          local GITREV="${R%%[[:blank:]]*}"
-          local GITVERS="${PKG_SOURCE_VERSION}"
+        #echo "packagedir=$PKGDIR"
+        # collect info from feed
+        local PKG_NAME=$(sed -n -e "/^PKG_NAME:=/s/PKG_NAME:=//p" "${PKGDIR}/Makefile")
+        local PKG_VERSION=$(sed -n -e "/^PKG_VERSION:=/s/PKG_VERSION:=//p" "${PKGDIR}/Makefile")
+        local PKG_SOURCE_URL=$(sed -n -e "/^PKG_SOURCE_URL:=/s/PKG_SOURCE_URL:=//p" "${PKGDIR}/Makefile")
+        local PKG_SOURCE_VERSION=$(sed -n -e "/^PKG_SOURCE_VERSION:=/s/PKG_SOURCE_VERSION:=//p" "${PKGDIR}/Makefile")
+        local PKGNAMEVERS="${PKG_NAME}-${PKG_VERSION}"
+        # build-dir as defined in makefile
+        local PD=$(sed -n -e "/^PKG_BUILD_DIR:=/s/PKG_BUILD_DIR:=//p" "${PKGDIR}/Makefile")
+        local PD=${PD//\$\(/\$\{}
+        local PD=${PD//\)/\}}
+        eval PKGBUILDDIR="$PD"
+        #echo "PKG_NAME=$PKG_NAME, PKG_VERSION=$PKG_VERSION, PKG_SOURCE_VERSION=$PKG_SOURCE_VERSION, PD=$PD"
+        #echo "package build dir: ${PKGBUILDDIR}"
+        # collect info from build
+        if [ ! -d "${PKGBUILDDIR}" ]; then
+          warn "*** ${PKGNAMEVERS}: no build directory found"
+        elif [ ! -e "${PKGBUILDDIR}/.gitdownload_url" ]; then
+          warn "*** ${PKGNAMEVERS}: was not built with p44b checkout revision tracking"
         else
-          # vers is a SHA that cannot move, so no need to check with source repo
-          local GITREV="${BUILDREV}"
-          local GITVERS=
-        fi
-        # consistency checks
-        if [[ "${BUILDVERS}" != "${PKG_SOURCE_VERSION}" && "${BUILDREV}" != "${PKG_SOURCE_VERSION}" ]]; then
-          warn "*** ${PKGNAMEVERS}: branch/commit recorded in build (${BUILDVERS}) differs from PKG_SOURCE_VERSION (${PKG_SOURCE_VERSION})"
-        elif [[ "${PKG_SOURCE_URL}" != "${BUILDURL}" ]]; then
-          warn "*** ${PKGNAMEVERS}: URL recorded in build (${BUILDURL}) differs from PKG_SOURCE_URL (${PKG_SOURCE_URL})"
-        else
-          # basic checks ok
-          plain "package ${PKGNAMEVERS}: was built from ${BUILDURL}:${BUILDVERS} (SHA:${BUILDREV})"
-          # check if we can trust the GITVERS branch name actually pointing to the built commit
-          if [[ "${GITREV}" != "${BUILDREV}" ]]; then
-            warn "*** ${PKGNAMEVERS}: Warning: SHA recorded in build (${BUILDREV}) differs from 'git ls-remote ... ${PKG_SOURCE_VERSION}' (${GITREV})"
-            echo "# ${PSPEC}: build SHA differs from current 'git ls-remote ... ${PKG_SOURCE_VERSION}' (${GITREV}) - could be due to commits happening since build" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
-            echo "# ${PSPEC}: WARNING: There is no branch/tag currently at ${BUILDREV}. We need to checkout whole repo" >>"${PUSHTAGS}"
-            GITVERS=
-          fi
-          # - record fixed sha source
-          echo "${PSPEC} ${BUILDURL}:${BUILDREV}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
-          # - record version/branch source
-          echo "${PSPEC} ${BUILDURL}:${BUILDVERS}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_VERS"
-          # - create entry for tagging source repositories in tagging script
-          if [[ -n "${GITVERS}" ]]; then
-            echo "git clone --depth 1 --no-checkout --single-branch --branch ${BUILDVERS} ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
+          # get info recorded during build
+          local BUILDURL=$(cat "${PKGBUILDDIR}/.gitdownload_url")
+          local BUILDREV=$(cat "${PKGBUILDDIR}/.gitdownload_rev")
+          local BUILDVERS=$(cat "${PKGBUILDDIR}/.gitdownload_version")
+          # get info from source repo
+          if [[ "${BUILDREV}" != "${BUILDVERS}" && "${PKG_SOURCE_VERSION}" != "${BUILDREV}" ]]; then
+            # vers is a ref (branch, tag) that can move -> get the SHA of that ref from the git source repo
+            local R=$(git ls-remote "${PKG_SOURCE_URL}" "${PKG_SOURCE_VERSION}")
+            local GITREV="${R%%[[:blank:]]*}"
+            local GITVERS="${PKG_SOURCE_VERSION}"
           else
-            # we do not know which branch we need, just clone normally in full depth
-            echo "git clone --no-checkout ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
+            # vers is a SHA that cannot move, so no need to check with source repo
+            local GITREV="${BUILDREV}"
+            local GITVERS=
           fi
-          echo "pushd ${PKG_NAME}" >>"${PUSHTAGS}"
-          echo "git tag -f ${VERSION_TAG} ${BUILDREV}" >>"${PUSHTAGS}"
-          echo "git push -f origin ${VERSION_TAG}" >>"${PUSHTAGS}"
-          echo "popd" >>"${PUSHTAGS}"
-          chmod a+x "${PUSHTAGS}"
+          # consistency checks
+          if [[ "${BUILDVERS}" != "${PKG_SOURCE_VERSION}" && "${BUILDREV}" != "${PKG_SOURCE_VERSION}" ]]; then
+            warn "*** ${PKGNAMEVERS}: branch/commit recorded in build (${BUILDVERS}) differs from PKG_SOURCE_VERSION (${PKG_SOURCE_VERSION})"
+          elif [[ "${PKG_SOURCE_URL}" != "${BUILDURL}" ]]; then
+            warn "*** ${PKGNAMEVERS}: URL recorded in build (${BUILDURL}) differs from PKG_SOURCE_URL (${PKG_SOURCE_URL})"
+          else
+            # basic checks ok
+            plain "package ${PKGNAMEVERS}: was built from ${BUILDURL}:${BUILDVERS} (SHA:${BUILDREV})"
+            # check if we can trust the GITVERS branch name actually pointing to the built commit
+            if [[ "${GITREV}" != "${BUILDREV}" ]]; then
+              warn "*** ${PKGNAMEVERS}: Warning: SHA recorded in build (${BUILDREV}) differs from 'git ls-remote ... ${PKG_SOURCE_VERSION}' (${GITREV})"
+              echo "# ${PSPEC}: build SHA differs from current 'git ls-remote ... ${PKG_SOURCE_VERSION}' (${GITREV}) - could be due to commits happening since build" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
+              echo "# ${PSPEC}: WARNING: There is no branch/tag currently at ${BUILDREV}. We need to checkout whole repo" >>"${PUSHTAGS}"
+              GITVERS=
+            fi
+            # - record fixed sha source
+            echo "${PSPEC} ${BUILDURL}:${BUILDREV}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
+            # - record version/branch source
+            echo "${PSPEC} ${BUILDURL}:${BUILDVERS}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_VERS"
+            # - create entry for tagging source repositories in tagging script
+            if [[ -n "${GITVERS}" ]]; then
+              echo "git clone --depth 1 --no-checkout --single-branch --branch ${BUILDVERS} ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
+            else
+              # we do not know which branch we need, just clone normally in full depth
+              echo "git clone --no-checkout ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
+            fi
+            echo "pushd ${PKG_NAME}" >>"${PUSHTAGS}"
+            echo "git tag -f ${VERSION_TAG} ${BUILDREV}" >>"${PUSHTAGS}"
+            echo "git push -f origin ${VERSION_TAG}" >>"${PUSHTAGS}"
+            echo "popd" >>"${PUSHTAGS}"
+            chmod a+x "${PUSHTAGS}"
+          fi
         fi
       fi
-    fi
-  done
-  echo "popd" >>"${PUSHTAGS}"
+    done
+    echo "popd" >>"${PUSHTAGS}"
+  fi
   finished "saving build state"
 }
 
