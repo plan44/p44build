@@ -491,10 +491,12 @@ command:target() {
   TARGET_ID="${NEW_TARGET_ID}"
   echo -n "${TARGET_ID}" > "${P44B_STATE_DIR}/target_id"
   # update the package indices
+  info "Updating package indices"
   rm -rf ${BUILDROOT}/tmp 2>/dev/null
   pushd ${BUILDROOT} >/dev/null
   ./scripts/feeds update -i
   # copy the config and expand
+  info "Expanding diffconfig-${NEW_TARGET_ID} into full .config"
   cp "${DIFFCONFIG}" "${BUILDROOT}/.config"
   make defconfig
   popd >/dev/null
