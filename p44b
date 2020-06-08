@@ -158,6 +158,10 @@ read_config()
   TOOLCHAIN_ROOT="${BUILDROOT}/build_dir/${TOOLCHAINID}"
   # staging root
   STAGING_ROOT="${BUILDROOT}/staging_dir/${TARGETID}/root-${CONFIG_TARGET_BOARD}"
+  # target bin dir
+  TARGET_BIN="${BUILDROOT}/bin/targets/${CONFIG_TARGET_BOARD}/${CONFIG_TARGET_SUBTARGET}"
+  # architecture bin dir
+  ARCH_BIN="${BUILDROOT}/bin/packages/${CONFIG_TARGET_ARCH_PACKAGES}"
   # dist name
   IMG_DIST_NAME="${CONFIG_VERSION_DIST}"
   IMG_DIST_NAME_LC=$(echo "$IMG_DIST_NAME" | awk '{print tolower($0)}')
@@ -170,7 +174,7 @@ set_script_env()
   # publish some environment variables for called scripts
   # - most recently built image
   read_config ".config" # current settings, not saved ones
-  local SRCIMGS=$(ls -1t ${BUILDROOT}/bin/targets/${CONFIG_TARGET_BOARD}/${CONFIG_TARGET_SUBTARGET}/${IMG_DIST_NAME_LC}-${CONFIG_VERSION_NUMBER}*-${CONFIG_TARGET_BOARD}-${CONFIG_TARGET_SUBTARGET}-${CONFIG_TARGET_PROFILE##DEVICE_}-${P44B_IMAGETYPE}* 2>/dev/null);
+  local SRCIMGS=$(ls -1t ${TARGET_BIN}/${IMG_DIST_NAME_LC}-${CONFIG_VERSION_NUMBER}*-${CONFIG_TARGET_BOARD}-${CONFIG_TARGET_SUBTARGET}-${CONFIG_TARGET_PROFILE##DEVICE_}-${P44B_IMAGETYPE}* 2>/dev/null);
   if [[ $? -eq 0 ]]; then
     set -- $SRCIMGS
     export BUILT_IMAGE=$1
@@ -1048,9 +1052,11 @@ command:status() {
       echo "- package arch    : ${CONFIG_TARGET_ARCH_PACKAGES}"
       echo "- target host     : ${TARGET_HOST}"
       info "Directories"
+      echo "- toolchain       : ${TOOLCHAIN_ROOT}"
       echo "- Build dir       : ${BUILD_DIR}"
       echo "- staging_dir     : ${STAGING_ROOT}"
-      echo "- toolchain       : ${TOOLCHAIN_ROOT}"
+      echo "- target bin dir  : ${TARGET_BIN}"
+      echo "- arch bin dir    : ${ARCH_BIN}"
       info "Current version (configured in .config)"
       echo "- Current version : ${CONFIG_VERSION_NUMBER}"
       echo "- Current feed    : ${CONFIG_P44_FEED_NAME}"
@@ -1291,8 +1297,8 @@ Usage:
 - ${SCRIPTNAME} ${FUNCNAME[0]##help:} <file>                 - send the specified file to /tmp on the target
 - ${SCRIPTNAME} ${FUNCNAME[0]##help:} [opts] <file> [<dest>] - send the specified file to <dest> (defaults to /tmp) on the target
 Options
-  -e, --executable : file is considered an executable from staging_dir/usr/bin
-  -d, --debuggable : file is considered an executable from staging_dir/usr/bin and will be stripped before sending
+  -e, --executable : file is considered an executable from staging_dir/.../usr/bin
+  -d, --debuggable : file is considered an executable from staging_dir/.../usr/bin and will be stripped before sending
   -p, --package    : file is a package specification in the form feed/package, the first match of "package"
                      with an actual package .ipk for the current target will be sent.
 Notes:
@@ -1310,7 +1316,7 @@ command:send() {
   read_config ".config" # current settings, not saved ones
   while [[ "${1:0:1}" == "-" ]]; do
     case "$1" in
-      "-p"|"--package") SRCFILE="${BUILDROOT}/bin/packages/${CONFIG_TARGET_ARCH_PACKAGES}/"; SRCSUFFIX='*'"_${CONFIG_TARGET_ARCH_PACKAGES}.ipk";shift 1;;
+      "-p"|"--package") SRCFILE="${ARCH_BIN}/"; SRCSUFFIX='*'"_${CONFIG_TARGET_ARCH_PACKAGES}.ipk";shift 1;;
       "-e"|"--executable") SRCFILE="${STAGING_ROOT}/usr/bin/" ;shift 1;;
       "-d"|"--debuggable") SRCFILE="${STAGING_ROOT}/usr/bin/" ; DO_STRIP=1; shift 1;;
       *) syntax "unknown option $1";;
