@@ -10,8 +10,7 @@ and managed/versioned along with other packages in a custom feed.
 All p44b specific information is stored in a folder called "p44build", usually a subfolder of the "umbrella" openwrt package.
 
 This can include a set of global patches that need to be applied to the openwrt tree (openwrt's quilt tool is used for that),
-configurations (diffconfigs) for one or multiple target platforms the project can be built for
-(my own projects often have versions for Omega2 and RaspberryPi).
+configurations (diffconfigs) for one or multiple target platforms the project can be built for (my own projects often have versions for Omega2 and RaspberryPi), and custom scripts for project specific build, package, flash and deploy steps.
 
 The p44build folder also has a "tracking" subfolder, which collects information about the exact state of all openwrt feeds, source packages installed, and can additionally track the individual state of packages
 that are part of the development for this target.
@@ -26,7 +25,7 @@ Start with a fresh openwrt checkout, and an umbrella openwrt packge (look at one
 
 The openwrt feed should be checked out at the version required by the project, otherwise `./p44b init` will complain. The file `buildroot_checkout` in the p44build folder (`feeds/plan44/pixelboard-config/p44build` in this example) contains the version label expected.
 
-You also need this repo checked out somewhere, let me assume it is in `/users/myself/stuff/p44build`
+You also need this repo checked out somewhere, let me assume it is in `/users/you/stuff/p44build`
 
 Now from here the steps to build an image are
 
@@ -36,6 +35,7 @@ Now from here the steps to build an image are
 - `./p44b target` # to see what target platforms the project can build for
 - `./p44b target pixelboard-omega2` # select the Omega2 target, apply openwrt config
 - `./p44b build` # build the image
+- `TARGET_HOST=192.168.xx.yy ./p44b send` # send the built image to /tmp on TARGET_HOST, where it can be installed using `sysupgrade /tmp/*sysupgrade.bin`
 
 At this point, you can also actively work in the tree such as using `make menuconfig` to change openwrt config, install additional packages, continue developing the main application ([pixelboard](https://github.com/plan44/pixelboardd) in this case) etc.
 

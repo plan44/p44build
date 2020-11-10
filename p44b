@@ -942,7 +942,7 @@ command:commitversion() {
 
 
 
-help:commitversion() {
+help:tagversion() {
 cat >&2 <<ENDHELP
 Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} [-p|--packages]
 
