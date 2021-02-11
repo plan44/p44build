@@ -425,7 +425,10 @@ command:prepare() {
     # switch to correct buildroot state
     git reset --hard
     # apply the patches
-    quilt push -a
+    if ! quilt push -a; then
+	    err "Error: applying global patches not completely successful"
+	    info "(just use quilt manually to review, fix and apply all remaining patches to complete the 'prepare' operation)"
+    fi
     # clean feeds from MacOS folder state files
     find ${BUILDROOT}/feeds -name .DS_Store -delete
   else
