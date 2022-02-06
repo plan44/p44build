@@ -910,10 +910,14 @@ command:save() {
 
 help:commitversion() {
 cat >&2 <<ENDHELP
-Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:}
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} [-f|--freeze]
 
 Create a commit in the feed repository containing the current p44build directory
 containing the currently saved state with a commit named after current version information in .config
+
+If --freeze is specified, the currently recorded SHA for tracked packages will be inserted into
+the package makefile's PKG_SOURCE_VERSION before committing, staged for commit and then immediately
+reverted to original. This assumes tracked packages are in the same git/feed as the p44build dir.
 
 The commit message is composed from .config's
 - CONFIG_VERSION_PRODUCT
@@ -924,9 +928,13 @@ The commit message is composed from .config's
 ENDHELP
 }
 command:commitversion() {
-  if [[ $# -ne 0 ]]; then
-    syntax "no arguments expected"
-  fi
+  local DO_FREEZE_VERS=0
+  for OPT in $@ ; do
+    case "$OPT" in
+      "-f"|"--freeze") DO_FREEZE_VERS=1;;
+      *) die "unknown option $OPT";;
+    esac
+  done
   if [[ -z "${P44B_SRC_DIR}" || ! -f "${P44B_SRC_DIR}/${TRACKING_DIR}/buildroot_SHA" ]]; then
     die "Nothing saved, cannot commit"
   fi
@@ -936,6 +944,34 @@ command:commitversion() {
   fi
   # clean feeds from MacOS folder state files
   find ${BUILDROOT}/feeds -name .DS_Store -delete
+  # optionally modify package makefiles and set PKG_SOURCE_VERSION to SHA
+  if [[ ${DO_FREEZE_VERS} -ne 0 ]]; then
+    local PACKAGESTATES="${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
+    while IFS='' read -r line || [[ -n "$line" ]]; do
+      if [[ "${line:0:1}" != "#" ]]; then
+        local pspec="${line/ *}"
+        local FEED="${pspec/\/*}"
+        local PNAME="${pspec:((${#FEED}+1))}"
+        local spec="${line:((${#pspec}+1))}"
+        local URL="${spec%:*}"
+        local SAVED="${spec:((${#URL}+1))}"
+        #echo "FEED=${FEED}, PNAME=${PNAME}, URL=${URL}, SAVED=${SAVED}"
+        pushd "${BUILDROOT}/feeds/${FEED}/${PNAME}" >/dev/null
+        if [[ -f Makefile && -n "${FEED}" && -n "${PNAME}" && -n "${SAVED}" ]]; then
+          sed -i ".ORIG" -E -e "/PKG_SOURCE_VERSION:=/s|PKG_SOURCE_VERSION:=(.*)$|PKG_SOURCE_VERSION:=${SAVED}|" Makefile
+          # stage changed version
+          git add Makefile
+          info "Staged Makefile of ${FEED}/${PNAME} with frozen PKG_SOURCE_VERSION:=${SAVED}"
+          # and restore original right away
+          mv -f Makefile.ORIG Makefile
+        else
+          err "Package ${FEED}/${PNAME} Makefile not found"
+        fi
+        popd >/dev/null
+      fi
+    done < "${PACKAGESTATES}"
+  fi
+  # now actually commit
   pushd "${P44B_SRC_DIR}" >/dev/null
   git add -A "${P44B_SRC_DIR}"
   git commit -m "${VERSION_TAG}"
