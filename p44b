@@ -1286,7 +1286,7 @@ command:buildtargets() {
         command:deploy ${P44B_DEPLOY_ARGS}
       fi
       if [[ ${DO_TAG} -ne 0 ]]; then
-        command:commitversion
+        command:commitversion ${P44B_COMMITVERSION_ARGS}
         command:tagversion ${P44B_TAGVERSION_ARGS}
       fi
       if [[ ${DO_PUSH} -ne 0 ]]; then

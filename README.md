@@ -46,3 +46,8 @@ To revert the openwrt tree back to clean checkout state: `./p44b cleanup`
 ## Advanced features
 
 p44b has many other subcommands (just use `./p44b --help` or `./p44b <subcommand> --help` for packaging, debugging, deploying, tagging involved git projects etc. Some of these need helper scripts in the p44build folder that do the actual work as needed for the project.
+
+## Questions, Suggestions, Contributions
+
+- There is a forum at [forum.plan44.ch](https://forum.plan44.ch/t/opensource-c-vdcd) for all things related to p44 opensource, best for questions about `p44b`.
+- Of course, issues or pull requests on github are possible.
