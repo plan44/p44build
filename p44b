@@ -431,6 +431,8 @@ command:prepare() {
     fi
     # clean feeds from MacOS folder state files
     find ${BUILDROOT}/feeds -name .DS_Store -delete
+    # set flag
+    touch "${P44B_STATE_DIR}/prepared"
   else
     err "Error: no buildroot_checkout"
     info "(might want to use ${TRACKING_DIR}/buildroot_SHA or ${TRACKING_DIR}/buildroot_VERS)"
@@ -477,6 +479,9 @@ In particular:
 ENDHELP
 }
 command:target() {
+  if [ ! -f "${P44B_STATE_DIR}/prepared" ]; then
+    die "buildroot is not yet prepared (global patches not applied) -> use ${SCRIPTNAME} prepare"
+  fi
   if [[ $# -eq 0 ]]; then
     # list targets
     TARGETS="${P44B_SRC_DIR}/${CONFIGS_DIR}/diffconfig"*
@@ -1078,7 +1083,9 @@ command:status() {
   if [ ! -z "${P44B_SRC_DIR}" ]; then
     notice "Initialized with ${ALIAS} sources at '${P44B_SRC_DIR}'"
     read_config ".config" # current settings, not saved ones
-    if [[ -z "${TARGET_ID}" || -z "${P44B_SRC_DIR}" ]]; then
+    if [ ! -f "${P44B_STATE_DIR}/prepared" ]; then
+      warn "buildroot is not yet prepared -> use ${SCRIPTNAME} prepare"
+    elif [[ -z "${TARGET_ID}" || -z "${P44B_SRC_DIR}" ]]; then
       warn "No target selected -> use ${SCRIPTNAME} target"
     else
       info "Target"
