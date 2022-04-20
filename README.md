@@ -20,8 +20,9 @@ is recorded into the umbrella package and can be versioned easily by a commit in
 
 ## Basic usage
 
-Start with a fresh openwrt checkout, and an umbrella openwrt packge (look at one of the *-config packages in the
-[plan44 feed](https://github.com/plan44/plan44-feed), like [pixelboard-config](https://github.com/plan44/plan44-feed/tree/master/pixelboard-config) which I'll use as example below).
+Start with a fresh openwrt checkout, and an umbrella openwrt packge. Look at one of the *-config packages in the
+[plan44 feed](https://github.com/plan44/plan44-feed), like [pixelboard-config](https://github.com/plan44/plan44-feed/tree/master/pixelboard-config) which I'll use as example below.
+(Alternatively, use the `new` command to create a default p44build directory with the current openwrt version and config as a starting point for a new project.)
 
 The openwrt feed should be checked out at the version required by the project, otherwise `./p44b init` will complain. The file `buildroot_checkout` in the p44build folder (`feeds/plan44/pixelboard-config/p44build` in this example) contains the version label expected.
 

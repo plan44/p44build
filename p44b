@@ -199,6 +199,158 @@ set_script_env()
 # exit 0
 
 
+help:new() {
+cat >&2 <<ENDHELP
+Usage: [<path/to/script>]${SCRIPTNAME} ${FUNCNAME[0]##help:} <path to new p44build directory to create>
+
+Create a new p44build directory with minimal/template files for managing a openwrt project
+
+Does the following
+- creates the specified directory and standard subdirectories as the p44build directory
+- creates some standard global-patches needed for p44b operation
+- creates dummy/example scripts for build/package/deploy/flash commands
+- creates a template for tracking packages (tracked_packages)
+- saves the current openwrt version as buildroot_checkout marker (using git describe)
+- saves a diffconfig of the current openwrt .config as a default target config
+
+ENDHELP
+}
+command:new() {
+  local NEW_P44B_DIR="$1"
+  if [[ $# -ne 1 ]]; then
+    syntax "must specify a path where to create new p44build directory"
+  fi
+  if [ -e "${NEW_P44B_DIR}" ]; then
+    die "'${NEW_P44B_DIR}' already exists"
+  fi
+  notice "creating new p44build default setup in ${NEW_P44B_DIR}"
+  # create and enter new p44build directory
+  info "creating new p44build dir"
+  if ! mkdir "${NEW_P44B_DIR}"; then
+    die "cannot create ${NEW_P44B_DIR}"
+  fi
+  pushd "${NEW_P44B_DIR}" >/dev/null
+  mkdir "${CONFIGS_DIR}"
+  mkdir "${SCRIPTS_DIR}"
+  mkdir "${GLOBAL_PATCHES_DIR}"
+  # create standard global patches
+  info "creating standard global patch to .gitignore p44b temprorary dirs/files in openwrt tree"
+  cat >"$GLOBAL_PATCHES_DIR/001-gitignore.diff" <<'ENDPATCH'
+--- a/.gitignore
++++ b/.gitignore
+@@ -12,7 +12,7 @@
+ /logs
+ /feeds
+ /feeds.conf
+-/files
++#/files
+ /overlay
+ /package/feeds
+ /package/openwrt-packages
+@@ -29,3 +29,8 @@ git-src
+ .project
+ .cproject
+ .ccache
++# p44build additions
++/patches
++/.pc
++/.p44build
++p44b
+ENDPATCH
+  info "creating standard global patch to save git checkout markers in build dirs"
+  cat >"$GLOBAL_PATCHES_DIR/002-download-save-gitrev.diff" <<'ENDPATCH'
+--- a/include/download.mk
++++ b/include/download.mk
+@@ -205,7 +205,10 @@ define DownloadMethod/rawgit
+ 	[ \! -d $(SUBDIR) ] && \
+ 	git clone $(OPTS) $(URL) $(SUBDIR) && \
+ 	(cd $(SUBDIR) && git checkout $(VERSION) && \
+-	git submodule update --init --recursive) && \
++	git submodule update --init --recursive && \
++	echo "$(URL)" >.gitdownload_url && \
++	echo "$(VERSION)" >.gitdownload_version && \
++	git rev-parse HEAD >.gitdownload_rev) && \
+ 	echo "Packing checkout..." && \
+ 	export TAR_TIMESTAMP=`cd $(SUBDIR) && git log -1 --format='@%ct'` && \
+ 	rm -rf $(SUBDIR)/.git && \
+ENDPATCH
+  # create tracking templates
+  info "creating tracked_packages template"
+  cat >"tracked_packages" <<'ENDTRACK'
+# Specify packages for which git revision SHA/name should be recorded with each p44b save
+# One package per line in the form: feedname/packagename, e.g. (without the #):
+#plan44/serialfwd
+ENDTRACK
+  # create script templates
+  info "creating script templates/examples for custom build/package/deploy/flash operations"
+  cat >"$SCRIPTS_DIR/build.sh" <<'ENDSCRIPT'
+# Speed up make world
+echo "Note: using all but one of the available processors/cores for building"
+make -j$(($(nproc)-1))
+ENDSCRIPT
+  cat >"$SCRIPTS_DIR/package.sh" <<'ENDSCRIPT'
+# here you could perform steps to package (e.g. sign, rename, compress etc.) a built image
+# The BUILT_IMAGE environment variable is set to the full path of the most recently built image
+echo "No implementation for packaging"
+exit 1
+ENDSCRIPT
+  cat >"$SCRIPTS_DIR/deploy.sh" <<'ENDSCRIPT'
+# here you could perform steps to deploy a built image (e.g. transfer it to a web server)
+# The BUILT_IMAGE environment variable is set to the full path of the most recently built image
+echo "No implementation for deploying"
+exit 1
+ENDSCRIPT
+  cat >"$SCRIPTS_DIR/flash.sh" <<'ENDSCRIPT'
+# here you could perform steps to flash a target with the freshly built image
+# The BUILT_IMAGE environment variable is set to the full path of the most recently built image
+echo "No implementation for flashing"
+exit 1
+ENDSCRIPT
+  cat >"$SCRIPTS_DIR/buildprep.inc" <<'ENDSCRIPT'
+# Here you can set environment variables and perform other preparation steps for a 'buildtargets' run.
+# This file is sourced into the buildtargets run. If it does not return success, buildtargets is aborted.
+
+# Example: when running commitversion, make sure not only changes in the p44build dir, but also
+#   in the enclosing dir (which is usually the "umbrella" openwrt package for the project) are committed,
+#   so stage these in advance now:
+#pushd ${P44B_SRC_DIR}/..  >/dev/null
+#git add .
+#popd  >/dev/null
+
+# Example: get a user input needed for building and store it in a environment variable
+#   for a buildtargets step, for example a passphrase for a signing key etc.
+#if [ -z "${NEEDEDVAR}" ]; then
+#  read -s -p "Need a user input: " NEEDEDVAR; echo
+#  export NEEDEDVAR
+#fi
+ENDSCRIPT
+  popd >/dev/null
+  # now back in dir from where we've been called (usually: openwrt buildroot)
+  if [[ -f ".config" ]]; then
+    # we are in a openwrt buildroot
+    # - save current openwrt checkout
+    local BUILDROOT_CHECKOUT=$(git describe HEAD)
+    info "recording current Openwrt checkout (${BUILDROOT_CHECKOUT}) in buildroot_checkout file"
+    echo "${BUILDROOT_CHECKOUT}" >"${NEW_P44B_DIR}/buildroot_checkout"
+    # - save current openwrt (diff)config
+    local TARGET_ID=$(sed -n -E -e 's/CONFIG_TARGET_PROFILE="DEVICE_([^"]*)"/\1/p' .config)
+    info "saving diffconfig of current openwrt .config as default target config named ${TARGET_ID}"
+    ./scripts/diffconfig.sh >"${NEW_P44B_DIR}/${CONFIGS_DIR}/diffconfig-${TARGET_ID}"
+    cp .config "${NEW_P44B_DIR}/${CONFIGS_DIR}/.config-${TARGET_ID}"
+  else
+    warn "current directory does not seem to be a openwrt buildroot -> cannot save checkout/create default target"
+  fi
+  # done
+  notice "done creating p44build default setup in ${NEW_P44B_DIR}"
+  info "to start working with this you might want to run:"
+  plain "  ${ALIAS} cleanup # to revert tree changes from current p44b project, if any"
+  plain "  ${ALIAS} init ${NEW_P44B_DIR} # to start using the new project"
+  plain "  ${ALIAS} prepare # to apply the patches"
+  plain "  ${ALIAS} target ${TARGET_ID} # to apply the target config"
+  return 0
+}
+
+
 help:init() {
 cat >&2 <<ENDHELP
 Usage: [<path/to/script>]${SCRIPTNAME} ${FUNCNAME[0]##help:} <path to p44build source directory of a product>
@@ -215,12 +367,12 @@ Does the following
 ENDHELP
 }
 command:init() {
-  local NEW_SRC_DIR="$1"
+  local NEW_P44B_DIR="$1"
   if [[ $# -ne 1 ]]; then
     syntax "must specify a path to a p44build directory"
   fi
-  if [ ! -d "${NEW_SRC_DIR}" ]; then
-    die "'${NEW_SRC_DIR}' is not a directory"
+  if [ ! -d "${NEW_P44B_DIR}" ]; then
+    die "'${NEW_P44B_DIR}' is not a directory"
   fi
   # create state directory
   if [ -e "${P44B_STATE_DIR}" ]; then
@@ -228,7 +380,7 @@ command:init() {
   fi
   mkdir "${P44B_STATE_DIR}"
   # expand and save the directory
-  pushd "${NEW_SRC_DIR}" >/dev/null
+  pushd "${NEW_P44B_DIR}" >/dev/null
   P44B_SRC_DIR="$(pwd -P)"
   popd >/dev/null
   echo -n "${P44B_SRC_DIR}" > "${P44B_STATE_DIR}/p44b_src_dir"
@@ -282,24 +434,24 @@ prevents triggering expensive rebuilds.
 ENDHELP
 }
 command:switch() {
-  local NEW_SRC_DIR="$1"
+  local NEW_P44B_DIR="$1"
   if [[ $# -ne 1 ]]; then
     syntax "must specify a path to a p44build directory"
   fi
-  if [ ! -d "${NEW_SRC_DIR}" ]; then
-    die "'${NEW_SRC_DIR}' is not a directory"
+  if [ ! -d "${NEW_P44B_DIR}" ]; then
+    die "'${NEW_P44B_DIR}' is not a directory"
   fi
   # state directory must exist
   if [ ! -e "${P44B_STATE_DIR}" ]; then
     die "p44build apparently not initialized, cannot switch - use 'init' first"
   fi
   # expand new name
-  pushd "${NEW_SRC_DIR}" >/dev/null
-  NEW_SRC_DIR="$(pwd -P)"
+  pushd "${NEW_P44B_DIR}" >/dev/null
+  NEW_P44B_DIR="$(pwd -P)"
   popd >/dev/null
   # check for same openwrt tree state
   local OLD_CHECKOUT=$(cat "${P44B_SRC_DIR}/buildroot_checkout")
-  local NEW_CHECKOUT=$(cat "${NEW_SRC_DIR}/buildroot_checkout")
+  local NEW_CHECKOUT=$(cat "${NEW_P44B_DIR}/buildroot_checkout")
   if [[ "${OLD_CHECKOUT}" != "${NEW_CHECKOUT}" ]]; then
     die "to-be-switched to directory is based on different buildroot checkout ('${NEW_CHECKOUT}' rather than '${OLD_CHECKOUT}') - use 'cleanup'/'init'"
   fi
@@ -307,7 +459,7 @@ command:switch() {
   find ${BUILDROOT}/feeds -name .DS_Store -delete
   # check for same set of global patches (note: no check for legacy "lede-patches" here!)
   local OLD_PATCHES="${P44B_SRC_DIR}/${GLOBAL_PATCHES_DIR}"
-  local NEW_PATCHES="${NEW_SRC_DIR}/${GLOBAL_PATCHES_DIR}"
+  local NEW_PATCHES="${NEW_P44B_DIR}/${GLOBAL_PATCHES_DIR}"
   if ! diff "${OLD_PATCHES}" "${NEW_PATCHES}"; then
     die "global set of patches is not equal, cannot switch - use 'cleanup'/'init'"
   fi
@@ -317,7 +469,7 @@ command:switch() {
   fi
 #   echo "patches dirs are equal: $OLD_PATCHES <-> $NEW_PATCHES"
 #   echo "P44B_STATE_DIR = $P44B_STATE_DIR"
-#   echo "NEW_SRC_DIR = $NEW_SRC_DIR"
+#   echo "NEW_P44B_DIR = $NEW_P44B_DIR"
 #   echo "BUILDROOT = $BUILDROOT"
 #   return 1
   # switch is possible
@@ -325,10 +477,10 @@ command:switch() {
   rm "${P44B_STATE_DIR}/target_id" 2>/dev/null
   rm "${BUILDROOT}/.config"  2>/dev/null
   # - save the new p44build directory
-  echo -n "${NEW_SRC_DIR}" > "${P44B_STATE_DIR}/p44b_src_dir"
+  echo -n "${NEW_P44B_DIR}" > "${P44B_STATE_DIR}/p44b_src_dir"
   # - set the soft link in buildroot to the new (but identical) patch dir
-  ln -sfh "${NEW_SRC_DIR}/${GLOBAL_PATCHES_DIR}" "${BUILDROOT}/patches"
-  notice "Successfully switched to new p44build directory: ${NEW_SRC_DIR}"
+  ln -sfh "${NEW_P44B_DIR}/${GLOBAL_PATCHES_DIR}" "${BUILDROOT}/patches"
+  notice "Successfully switched to new p44build directory: ${NEW_P44B_DIR}"
   return 0
 }
 
@@ -389,7 +541,7 @@ Prepares (patches) the buildroot tree with project specific patches from ${GLOBA
 In particular:
 - removes current patches
 - discards previous changes to the tree (if some are present, these will be stashed first)
-- checks out the buildroot commit as recorded in $P44B_SRC_DIR/buildroot_checkout
+- checks if buildroot checkoutr is as recorded in $P44B_SRC_DIR/buildroot_checkout
 - applies all buildroot patches
 - cleans feeds/ directory from macOS .DS_Store files which can interfere with builds
 
@@ -1531,8 +1683,9 @@ command:usage() {
   notice "Usage:"
   echo "  ${SCRIPTNAME} <command> --help                 - show help for <command>"
   info "Setup and cleanup"
-  echo "  ${SCRIPTNAME} init <srcdir>                    - initialize buildroot from a ${ALIAS} source directory"
-  echo "  ${SCRIPTNAME} switch <srcdir>                  - (try to) switch to a ${ALIAS} source directory w/o changing buildroot (possible if patches are equal)"
+  echo "  ${SCRIPTNAME} new <p44build_dir>               - create a fresh p44build directory as a starting point for a new project"
+  echo "  ${SCRIPTNAME} init <p44build_dir>              - initialize buildroot from a an existing p44build directory"
+  echo "  ${SCRIPTNAME} switch <p44build_dir>            - (try to) switch to a p44build source directory w/o changing buildroot (possible if patches are equal)"
   echo "  ${SCRIPTNAME} prepare                          - prepare (patch) tree from ${ALIAS} info"
   echo "  ${SCRIPTNAME} instpkg                          - install those packages from feeds that were present at last ${ALIAS} save"
   echo "  ${SCRIPTNAME} restore [opts] <what>...         - restore saved state, --apply to actually modify"
