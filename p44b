@@ -828,7 +828,7 @@ command:save() {
     echo "# feed/package giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
     local PUSHTAGS="${P44B_SRC_DIR}/${TRACKING_DIR}/pushtags.sh"
     echo "#!/bin/bash" >"${PUSHTAGS}"
-    echo "pushd /tmp; rm -rf /tmp/p44b_temp; mkdir p44b_temp; cd p44b_temp" >>"${PUSHTAGS}"
+    echo "pushd /tmp >/dev/null; rm -rf /tmp/p44b_temp; mkdir p44b_temp; cd p44b_temp" >>"${PUSHTAGS}"
     for PSPEC in ${PACKAGES}; do
       local FEEDNAME=${PSPEC%%/*}
       local PKGNAME=${PSPEC#*/}
@@ -892,22 +892,28 @@ command:save() {
             # - record version/branch source
             echo "${PSPEC} ${BUILDURL}:${BUILDVERS}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_VERS"
             # - create entry for tagging source repositories in tagging script
-            if [[ -n "${GITVERS}" ]]; then
-              echo "git clone --depth 1 --no-checkout --single-branch --branch ${BUILDVERS} ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
+            if [[ ${PKG_SOURCE_URL:0:4} == "http" ]]; then
+              warn "*** ${PKGNAMEVERS}: source URL is http(s), cannot be pushed to -> do not create tagging commands"
+              echo "# ${PKGNAMEVERS}: cannot push to http URL ${PKG_SOURCE_URL} -> cannot tag original" >>"${PUSHTAGS}"
             else
-              # we do not know which branch we need, just clone normally in full depth
-              echo "git clone --no-checkout ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
+              echo "# ${PKGNAMEVERS}: clone, tag and push back to original repo at ${PKG_SOURCE_URL}" >>"${PUSHTAGS}"
+              if [[ -n "${GITVERS}" ]]; then
+                echo "git clone --depth 1 --no-checkout --single-branch --branch ${BUILDVERS} ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
+              else
+                # we do not know which branch we need, just clone normally in full depth
+                echo "git clone --no-checkout ${PKG_SOURCE_URL} ${PKG_NAME}" >>"${PUSHTAGS}"
+              fi
+              echo "pushd ${PKG_NAME}" >>"${PUSHTAGS}"
+              echo "git tag -f ${VERSION_TAG} ${BUILDREV}" >>"${PUSHTAGS}"
+              echo "git push -f origin ${VERSION_TAG}" >>"${PUSHTAGS}"
+              echo "popd" >>"${PUSHTAGS}"
             fi
-            echo "pushd ${PKG_NAME}" >>"${PUSHTAGS}"
-            echo "git tag -f ${VERSION_TAG} ${BUILDREV}" >>"${PUSHTAGS}"
-            echo "git push -f origin ${VERSION_TAG}" >>"${PUSHTAGS}"
-            echo "popd" >>"${PUSHTAGS}"
-            chmod a+x "${PUSHTAGS}"
           fi
         fi
       fi
     done
-    echo "popd" >>"${PUSHTAGS}"
+    chmod a+x "${PUSHTAGS}"
+    echo "popd >/dev/null" >>"${PUSHTAGS}"
   fi
   finished "saving build state"
 }
@@ -1027,8 +1033,9 @@ command:tagversion() {
     popd >/dev/null
     # tag tracked packages?
     if [[ ${DO_TAG_PKGS} -ne 0 ]]; then
-      notice "# Tagging tracked packages now:"
+      info "# Tagging tracked packages (with writable source repos) now:"
       ${P44B_SRC_DIR}/${TRACKING_DIR}/pushtags.sh
+      info "# Done tagging tracked packages"
     fi
   fi
 }
