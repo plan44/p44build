@@ -818,18 +818,21 @@ command:save() {
     info "=== saving tracked package states"
     read_config
     # go through tracked packages
-    if [ ! -f "${P44B_SRC_DIR}/tracked_packages" ]; then
+    local TRACKEDPACKAGES="${P44B_SRC_DIR}/tracked_packages"
+    if [ ! -f "${TRACKEDPACKAGES}" ]; then
       notice "no tracked_packages file -> nothing to track"
       return 0
     fi
-    local PACKAGES=$(cat "${P44B_SRC_DIR}/tracked_packages");
     # remove the previous trackings
     echo "# feed/package giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_VERS"
     echo "# feed/package giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
     local PUSHTAGS="${P44B_SRC_DIR}/${TRACKING_DIR}/pushtags.sh"
     echo "#!/bin/bash" >"${PUSHTAGS}"
     echo "pushd /tmp >/dev/null; rm -rf /tmp/p44b_temp; mkdir p44b_temp; cd p44b_temp" >>"${PUSHTAGS}"
-    for PSPEC in ${PACKAGES}; do
+    while IFS='' read -r PSPEC || [[ -n "$PSPEC" ]]; do
+      if [[ "${PSPEC:0:1}" == "#" || -z "$PSPEC" ]]; then
+        continue
+      fi
       local FEEDNAME=${PSPEC%%/*}
       local PKGNAME=${PSPEC#*/}
       #echo "feed=$FEEDNAME pgk=$PKGNAME"
@@ -911,7 +914,7 @@ command:save() {
           fi
         fi
       fi
-    done
+    done < "${TRACKEDPACKAGES}"
     chmod a+x "${PUSHTAGS}"
     echo "popd >/dev/null" >>"${PUSHTAGS}"
   fi
