@@ -1668,6 +1668,25 @@ command:login() {
 }
 
 
+help:tidy() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:}
+
+remove debris such as macOS .DS_Store files from buildroot
+
+Note: especially .DS_Store files can make quilt diff / refresh fail,
+      so getting rid of those is important.
+      Other ${SCRIPTNAME} commands for which a clean state is
+      important will call ${FUNCNAME[0]##help:} automatically when needed.
+
+ENDHELP
+}
+command:tidy() {
+  # clean feeds from MacOS folder state files (there could be some in the patches, too)
+  find ${BUILDROOT}/feeds -name .DS_Store -delete
+}
+
+
 
 help:test() {
 cat >&2 <<ENDHELP
@@ -1693,7 +1712,8 @@ command:usage() {
   echo "  ${SCRIPTNAME} prepare                          - prepare (patch) tree from ${ALIAS} info"
   echo "  ${SCRIPTNAME} instpkg                          - install those packages from feeds that were present at last ${ALIAS} save"
   echo "  ${SCRIPTNAME} restore [opts] <what>...         - restore saved state, --apply to actually modify"
-  echo "  ${SCRIPTNAME} cleanup                          - clean up buildroot"
+  echo "  ${SCRIPTNAME} cleanup                          - clean up buildroot from all p44b stuff (patches, extra files)"
+  echo "  ${SCRIPTNAME} tidy                             - remove debris such as macOS .DS_Store files from buildroot"
   info "Build commands (in usual sequence)"
   echo "  ${SCRIPTNAME} target [<target>]                - list targets or switch to specified target configuration"
   echo "  ${SCRIPTNAME} build [<args>...]                - call build.sh script if existing, otherwise just call make, with optional args"
