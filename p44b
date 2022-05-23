@@ -81,6 +81,10 @@ shopt -s extglob
 
 # must always be started from buildroot
 BUILDROOT="$(pwd -P)"
+if [ ! -f "${BUILDROOT}/feeds.conf.default" ]; then
+  error "${BUILDROOT} does not contain a feeds.conf.default -> not an openwrt buildroot"
+  die "Must be started from a openwrt buildroot"
+fi
 
 # the alias name to be used for referring to the script
 ALIAS="p44b"
