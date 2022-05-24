@@ -934,6 +934,7 @@ command:save() {
     FEEDS=$(find ${BUILDROOT}/package/feeds -type d -depth 1 -exec "echo" "{}" ";")
     for FEED in ${FEEDS}; do
       FEEDNAME=$(basename ${FEED})
+      plain "# saving installed packages from ${FEEDNAME}..."
       #echo "--- feed=${FEEDNAME} dir=${FEED}"
       pushd ${FEED} >/dev/null
       echo "./scripts/feeds update ${FEEDNAME}" >>"${INSTPKGS}"
@@ -941,6 +942,7 @@ command:save() {
         #echo "---   instpdir=${INSTPDIR}"
         local CMNT=""
         local INSTPNAMES=$(sed -E -n -e "/^Source-Makefile: +feeds\/${FEEDNAME}.*\/${INSTPDIR}\/Makefile/,/^Source-Makefile:/s/^Package: +([-a-zA-Z_]+)/\1/p" ${BUILDROOT}/feeds/${FEEDNAME}.index)
+        echo "echo 'checking packages from ${PTH}'" >>"${INSTPKGS}"
         for INSTPNAME in ${INSTPNAMES}; do
           #echo "---     instpname=${INSTPNAME}"
           echo "${CMNT}./scripts/feeds install -p ${FEEDNAME} ${INSTPNAME}" >>"${INSTPKGS}"
