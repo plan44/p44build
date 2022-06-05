@@ -89,6 +89,21 @@ fi
 # the alias name to be used for referring to the script
 ALIAS="p44b"
 
+# prefer gmake over make (because latter is usually outdated on macOS, while former - from brew - is ok)
+MAKE=$(which gmake)
+if [[ $? -ne 0 ]]; then
+  MAKE=$(which make)
+fi
+GMAKE_VERS_MAJ=$(${MAKE} --version | sed -E -n -e "/GNU Make/s/GNU Make ([0-9]+).*$/\1/p")
+if (( ${GMAKE_VERS_MAJ} < 4 )); then
+  die "need a GNU gmake or make with Version >=4.0"
+fi
+#info "using ${MAKE}"
+# create a temp diffconfig script that takes the right make version
+DIFFCONFIG="/tmp/p44-diffconfig"
+sed -E -e "s#make#${MAKE}#g" ./scripts/diffconfig.sh >${DIFFCONFIG}
+chmod a+x ${DIFFCONFIG}
+
 # defaults
 if [ -z ${P44B_IMAGETYPE+x} ]; then
   P44B_IMAGETYPE="squashfs-sysupgrade"
@@ -290,7 +305,12 @@ ENDTRACK
   cat >"$SCRIPTS_DIR/build.sh" <<'ENDSCRIPT'
 # Speed up make world
 echo "Note: using all but one of the available processors/cores for building"
-make -j$(($(nproc)-1))
+# prefer gmake over make (because latter might be outdated on Apple)
+MAKE=$(which gmake)
+if [[ $? -ne 0 ]]; then
+  MAKE=$(which make)
+fi
+${MAKE} -j$(($(nproc)-1))
 ENDSCRIPT
   cat >"$SCRIPTS_DIR/package.sh" <<'ENDSCRIPT'
 # here you could perform steps to package (e.g. sign, rename, compress etc.) a built image
@@ -339,7 +359,7 @@ ENDSCRIPT
     # - save current openwrt (diff)config
     local TARGET_ID=$(sed -n -E -e 's/CONFIG_TARGET_PROFILE="DEVICE_([^"]*)"/\1/p' .config)
     info "saving diffconfig of current openwrt .config as default target config named ${TARGET_ID}"
-    ./scripts/diffconfig.sh >"${NEW_P44B_DIR}/${CONFIGS_DIR}/diffconfig-${TARGET_ID}"
+    ${DIFFCONFIG} >"${NEW_P44B_DIR}/${CONFIGS_DIR}/diffconfig-${TARGET_ID}"
     cp .config "${NEW_P44B_DIR}/${CONFIGS_DIR}/.config-${TARGET_ID}"
   else
     warn "current directory does not seem to be a openwrt buildroot -> cannot save checkout/create default target"
@@ -666,7 +686,7 @@ command:target() {
   # copy the config and expand
   info "Expanding diffconfig-${NEW_TARGET_ID} into full .config"
   cp "${DIFFCONFIG}" "${BUILDROOT}/.config"
-  make defconfig
+  ${MAKE} defconfig
   popd >/dev/null
   # show the status
   command:status
@@ -835,7 +855,7 @@ command:restore() {
       cp .config "${cfn}"
       command:target "${TARGET_ID}"
     else
-      ./scripts/diffconfig.sh >"/tmp/diffconfig_${TARGET_ID}"
+      ${DIFFCONFIG} >"/tmp/diffconfig_${TARGET_ID}"
       warn "Target diffconfig has changed, should re-apply target settings:"
       diff "/tmp/diffconfig_${TARGET_ID}" "${CONFIGDIR}/diffconfig-${TARGET_ID}"
       plain ""
@@ -921,7 +941,7 @@ command:save() {
     cp feeds.conf "${P44B_SRC_DIR}/${TRACKING_DIR}/feeds.conf-snapshot"
     # diffconfig for current target
     local CONFIGDIR="${P44B_SRC_DIR}/${CONFIGS_DIR}"
-    ./scripts/diffconfig.sh >"${CONFIGDIR}/diffconfig-${TARGET_ID}"
+    ${DIFFCONFIG} >"${CONFIGDIR}/diffconfig-${TARGET_ID}"
     # complete config for reference purposes
     cp .config "${CONFIGDIR}/.config-${TARGET_ID}"
   fi
@@ -1302,8 +1322,8 @@ command:build() {
   starting "build"
   local BUILDCMD="${P44B_SRC_DIR}/${SCRIPTS_DIR}/build.sh"
   if [ ! -f "${BUILDCMD}" ]; then
-    info "no build.sh script in ${ALIAS} folder -> just using make"
-    BUILDCMD="make"
+    info "no build.sh script in ${ALIAS} folder -> just using $MAKE"
+    BUILDCMD="${MAKE}"
   fi
   # run build script/make
   set_script_env
@@ -1718,7 +1738,7 @@ command:usage() {
   echo "  ${SCRIPTNAME} tidy                             - remove debris such as macOS .DS_Store files from buildroot"
   info "Build commands (in usual sequence)"
   echo "  ${SCRIPTNAME} target [<target>]                - list targets or switch to specified target configuration"
-  echo "  ${SCRIPTNAME} build [<args>...]                - call build.sh script if existing, otherwise just call make, with optional args"
+  echo "  ${SCRIPTNAME} build [<args>...]                - call build.sh script if existing, otherwise just call (g)make, with optional args"
   echo "  ${SCRIPTNAME} package [<args>...]              - call package.sh script with with optional args"
   echo "  ${SCRIPTNAME} deploy [<args>...]               - call deploy.sh script with optional args"
   echo "  ${SCRIPTNAME} flash [<args>...]                - call flash.sh script with optional args"
