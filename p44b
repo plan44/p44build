@@ -1532,7 +1532,10 @@ Usage:
 - ${SCRIPTNAME} ${FUNCNAME[0]##help:} [opts] <file> [<dest>] - send the specified file to <dest> (defaults to /tmp) on the target
 Options
   -e, --executable : file is considered an executable from staging_dir/.../usr/bin
-  -d, --debuggable : file is considered an executable from staging_dir/.../usr/bin and will be stripped before sending
+  -d, --debuggable : file is considered an executable from staging_dir/.../usr/bin and will be
+                     stripped before sending. Target file name defaults to "debugtarget".
+  -s, --strip      : file will be stripped before sending (as with --debuggable), but no path
+                     prefix will be used. Target file name defaults to "debugtarget".
   -p, --package    : file is a package specification in the form feed/package, the first match of "package"
                      with an actual package .ipk for the current target will be sent.
 Notes:
@@ -1553,6 +1556,7 @@ command:send() {
       "-p"|"--package") SRCFILE="${ARCH_BIN}/"; SRCSUFFIX='*'"_${CONFIG_TARGET_ARCH_PACKAGES}.ipk";shift 1;;
       "-e"|"--executable") SRCFILE="${STAGING_ROOT}/usr/bin/" ;shift 1;;
       "-d"|"--debuggable") SRCFILE="${STAGING_ROOT}/usr/bin/" ; DO_STRIP=1; shift 1;;
+      "-s"|"--strip") SRCFILE="" ; DO_STRIP=1; shift 1;;
       *) syntax "unknown option $1";;
     esac
   done
