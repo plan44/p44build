@@ -1,6 +1,9 @@
 #!/bin/bash
 # p44b: host script for managing OpenWrt based product builds
 
+# ssh options (needed to connect to old/unknown units with old crypto and maybe re-used IP/host address)
+SSH_OPTS="-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o HostKeyAlgorithms=+ssh-rsa"
+
 # Helpers
 err()
 {
@@ -1594,8 +1597,8 @@ command:send() {
   fi
   notice "=== Sending: ${SRCFILE}"
   notice "         to: ${TARGET_HOST}:${TARGPATH}"
-  info "scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no ${SRCFILE} root@${TARGET_HOST}:${TARGPATH}"
-  scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "${SRCFILE}" "root@${TARGET_HOST}:${TARGPATH}"
+  info "scp ${SSH_OPTS} ${SRCFILE} root@${TARGET_HOST}:${TARGPATH}"
+  scp ${SSH_OPTS} "${SRCFILE}" "root@${TARGET_HOST}:${TARGPATH}"
   finished "sending"
 }
 
@@ -1659,8 +1662,8 @@ command:get() {
   fi
   notice "=== Getting: ${TARGET_HOST}:${SRCFILE}"
   notice "         to: ${DESTDIR}"
-  info "scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no root@${TARGET_HOST}:${SRCFILE} ${DESTDIR}"
-  scp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "root@${TARGET_HOST}:${SRCFILE}" "${DESTDIR}"
+  info "scp ${SSH_OPTS} root@${TARGET_HOST}:${SRCFILE} ${DESTDIR}"
+  scp ${SSH_OPTS} "root@${TARGET_HOST}:${SRCFILE}" "${DESTDIR}"
   finished "getting file to ${DESTDIR}"
 }
 
@@ -1689,8 +1692,8 @@ command:login() {
     syntax "need to specify host name or IP address"
   fi
   notice "=== connecting to ${HOST}:"
-  info "ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no root@${TARGET_HOST}"
-  ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no root@${TARGET_HOST}
+  info "ssh ${SSH_OPTS} -o HostKeyAlgorithms=+ssh-rsa root@${TARGET_HOST}"
+  ssh ${SSH_OPTS} -o HostKeyAlgorithms=+ssh-rsa root@${TARGET_HOST}
 }
 
 
