@@ -1513,7 +1513,7 @@ command:run() {
     # try with .sh suffix
     SCRIPT="${SCRIPT}.sh"
     if [ ! -x "${SCRIPT}" ]; then
-      die "no script '$1' in ${ALIAS} script folder"
+      die "no executable script '$1' in ${ALIAS} script folder"
     fi
   fi
   shift 1
