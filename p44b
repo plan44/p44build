@@ -1500,7 +1500,9 @@ command:buildtargets() {
 
 help:run() {
 cat >&2 <<ENDHELP
-Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} <script name>
+Usage:
+- ${SCRIPTNAME} ${FUNCNAME[0]##help:} <script name>      - run the script
+- ${SCRIPTNAME} ${FUNCNAME[0]##help:}                    - list all scripts
 
 Runs a script from the p44build/${SCRIPTS_DIR} directory
 The script name can be specified without the ".sh" extension for convenience
@@ -1508,22 +1510,25 @@ The script name can be specified without the ".sh" extension for convenience
 ENDHELP
 }
 command:run() {
+  local SCRIPTSPATH="${P44B_SRC_DIR}/${SCRIPTS_DIR}"
   if [[ $# -lt 1 ]]; then
-    syntax "specify script to run"
-  fi
-  local SCRIPT="${P44B_SRC_DIR}/${SCRIPTS_DIR}/$1"
-  if [ ! -x "${SCRIPT}" ]; then
-    # try with .sh suffix
-    SCRIPT="${SCRIPT}.sh"
+    info "----- available scripts to run: -----"
+    ls "${SCRIPTSPATH}"
+  else
+    local SCRIPT="${SCRIPTSPATH}/$1"
     if [ ! -x "${SCRIPT}" ]; then
-      die "no executable script '$1' in ${ALIAS} script folder"
+      # try with .sh suffix
+      SCRIPT="${SCRIPT}.sh"
+      if [ ! -x "${SCRIPT}" ]; then
+        die "no executable script '$1' in ${ALIAS} script folder"
+      fi
     fi
+    shift 1
+    # run it
+    set_script_env
+    info $SCRIPT "$@"
+    $SCRIPT "$@"
   fi
-  shift 1
-  # run it
-  set_script_env
-  info $SCRIPT "$@"
-  $SCRIPT "$@"
 }
 
 
