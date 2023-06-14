@@ -1273,7 +1273,7 @@ command:status() {
   fi
   if [ ! -z "${P44B_SRC_DIR}" ]; then
     notice "Initialized with ${ALIAS} sources at '${P44B_SRC_DIR}'"
-    read_config ".config" # current settings, not saved ones
+    set_script_env # using current settings, not saved ones - needed to get BUILT_IMAGE
     if [ ! -f "${P44B_STATE_DIR}/prepared" ]; then
       warn "buildroot is not yet prepared -> use ${SCRIPTNAME} prepare"
     elif [[ -z "${TARGET_ID}" || -z "${P44B_SRC_DIR}" ]]; then
@@ -1287,6 +1287,7 @@ command:status() {
       echo "- board/target    : ${CONFIG_TARGET_BOARD} / ${CONFIG_TARGET_SUBTARGET} / ${CONFIG_TARGET_PROFILE}"
       echo "- version tag     : ${VERSION_TAG}"
       echo "- package arch    : ${CONFIG_TARGET_ARCH_PACKAGES}"
+      echo "- built image     : ${BUILT_IMAGE}"
       echo "- target host     : ${TARGET_HOST}"
       info "Directories"
       echo "- toolchain       : ${TOOLCHAIN_ROOT}"
