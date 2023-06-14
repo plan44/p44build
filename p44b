@@ -421,10 +421,10 @@ command:init() {
   if [ -f "${BUILDROOT}/patches" ]; then
     die "non-softlink '${BUILDROOT}/patches' already exists"
   fi
-  ln -sfh "${P44B_SRC_DIR}/${PATCHES_DIR}" "${BUILDROOT}/patches"
+  ln -sfn "${P44B_SRC_DIR}/${PATCHES_DIR}" "${BUILDROOT}/patches"
   # create convenience soft link to script itself in buildroot (but do not replace regular file, should there be one)
   if [ ! -f "${BUILDROOT}/${ALIAS}" ]; then
-    ln -sfh "${SCRIPTFILE}" "${BUILDROOT}/${ALIAS}"
+    ln -sfn "${SCRIPTFILE}" "${BUILDROOT}/${ALIAS}"
   fi
   # check for matching tracking info and warn if there are differences
   local CURRENT=$(git rev-parse HEAD)
@@ -506,7 +506,7 @@ command:switch() {
   # - save the new p44build directory
   echo -n "${NEW_P44B_DIR}" > "${P44B_STATE_DIR}/p44b_src_dir"
   # - set the soft link in buildroot to the new (but identical) patch dir
-  ln -sfh "${NEW_P44B_DIR}/${GLOBAL_PATCHES_DIR}" "${BUILDROOT}/patches"
+  ln -sfn "${NEW_P44B_DIR}/${GLOBAL_PATCHES_DIR}" "${BUILDROOT}/patches"
   notice "Successfully switched to new p44build directory: ${NEW_P44B_DIR}"
   return 0
 }
