@@ -965,7 +965,7 @@ command:save() {
         #echo "---   instpdir=${INSTPDIR}"
         local CMNT=""
         local INSTPNAMES=$(sed -E -n -e "/^Source-Makefile: +feeds\/${FEEDNAME}.*\/${INSTPDIR}\/Makefile/,/^Source-Makefile:/s/^Package: +([-a-zA-Z_]+)/\1/p" ${BUILDROOT}/feeds/${FEEDNAME}.index)
-        echo "echo 'checking packages from ${PTH}'" >>"${INSTPKGS}"
+        echo "echo 'checking packages from ${INSTPDIR}'" >>"${INSTPKGS}"
         for INSTPNAME in ${INSTPNAMES}; do
           #echo "---     instpname=${INSTPNAME}"
           echo "${CMNT}./scripts/feeds install -p ${FEEDNAME} ${INSTPNAME}" >>"${INSTPKGS}"
