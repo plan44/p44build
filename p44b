@@ -1,6 +1,88 @@
 #!/bin/bash
 # p44b: host script for managing OpenWrt based product builds
 
+
+# usage
+command:usage() {
+  notice "Usage:"
+  echo "  ${SCRIPTNAME} <command> --help                 - show help for <command>"
+  info "Setup and cleanup"
+  echo "  ${SCRIPTNAME} new <p44build_dir>               - create a fresh p44build directory as a starting point for a new project"
+  echo "  ${SCRIPTNAME} init <p44build_dir>              - initialize buildroot from a an existing p44build directory"
+  echo "  ${SCRIPTNAME} switch <p44build_dir>            - (try to) switch to a p44build source directory w/o changing buildroot (possible if patches are equal)"
+  echo "  ${SCRIPTNAME} prepare                          - prepare (patch) tree from ${ALIAS} info"
+  echo "  ${SCRIPTNAME} instpkg                          - install those packages from feeds that were present at last ${ALIAS} save"
+  echo "  ${SCRIPTNAME} restore [opts] <what>...         - restore saved state, --apply to actually modify"
+  echo "  ${SCRIPTNAME} cleanup                          - clean up buildroot from all p44b stuff (patches, extra files)"
+  echo "  ${SCRIPTNAME} tidy                             - remove debris such as macOS .DS_Store files from buildroot"
+  info "Build commands (in usual sequence)"
+  echo "  ${SCRIPTNAME} target [<target>]                - list targets or switch to specified target configuration"
+  echo "  ${SCRIPTNAME} build [<args>...]                - call build.sh script if existing, otherwise just call (g)make, with optional args"
+  echo "  ${SCRIPTNAME} package [<args>...]              - call package.sh script with with optional args"
+  echo "  ${SCRIPTNAME} deploy [<args>...]               - call deploy.sh script with optional args"
+  echo "  ${SCRIPTNAME} flash [<args>...]                - call flash.sh script with optional args"
+  echo "  ${SCRIPTNAME} save                             - save current build's SHAs of buildroot and tracked packages"
+  echo "  ${SCRIPTNAME} commitversion                    - commit the currently saved version to the feed the ${ALIAS} source directory is in"
+  echo "  ${SCRIPTNAME} tagversion [-p|--packages]       - tag the currently saved and committed version"
+  echo "  ${SCRIPTNAME} pushversion <remote>             - push the currently checked out branch and the version tag to remote"
+  info "Automated build of multiple targets"
+  echo "  ${SCRIPTNAME} buildtargets [opts] <targets>... - switch to, build, package, save, commit, tag, deploy <targets>"
+  info "Testing and debugging"
+  echo "  ${SCRIPTNAME} send [opts] <file> [<remote>]    - send file/executable/package/debuggable to target"
+  echo "  ${SCRIPTNAME} debug [<executable>]             - start debugging <executable> with gdb"
+  echo "  ${SCRIPTNAME} get <file> [<remote>]            - get <remote file> to local <dir> (default: /tmp) from \$TARGET_HOST via scp"
+  echo "  ${SCRIPTNAME} login [<host>]                   - connect to specified host or TARGET_HOST via ssh w/o identity checking"
+  echo "  ${SCRIPTNAME} run <script> [<args>...]         - run script from ${ALIAS} scripts folder"
+  echo "  source ${SCRIPTNAME} targetenv                 - set environment variables and PATH to directly work with compiler in build dirs"
+  echo ""
+}
+
+
+help:targetenv() {
+cat >&2 <<ENDHELP
+Usage: source $0 targetenv
+
+Sets environment variables (including PATH) to allow directly working in a package's
+build directory with the current target's compilers and tools
+
+ENDHELP
+}
+include:targetenv() {
+  ecgo "TARGETENV"
+}
+
+# Check if script is sourced
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  # script is being sourced
+  if [[ $# -lt 1 ]]; then
+    command:usage
+    return
+  fi
+  # global options
+  for OPT in $@ ; do
+    case "$OPT" in
+      "-h"|"--help") command:usage; return;;
+      *) break 2;;
+    esac
+  done
+  COMMAND="$1"
+  shift 1
+  # run includes
+  if [[ $SHELL == */zsh ]]; then
+    whence -w include:${COMMAND} >/dev/null;
+  else
+    type -t include:${COMMAND} | grep -q function;
+  fi
+  if [[ $? == 0 ]]; then
+    include:${COMMAND} "$@"
+  else
+    echo "Unknown subcommand ${COMMAND} for sourcing 'p44b'"
+    echo "${BASH_SOURCE[0]} --help # for more information"
+  fi
+  return
+fi
+
+
 # ssh options (needed to connect to old/unknown units with old crypto and maybe re-used IP/host address)
 SSH_OPTS="-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o HostKeyAlgorithms=+ssh-rsa"
 
@@ -1419,9 +1501,11 @@ Usage:
   ${SCRIPTNAME} ${FUNCNAME[0]##help:}                      - list available targets
   ${SCRIPTNAME} ${FUNCNAME[0]##help:} [opts] <targets>...  - build/package/save one or multiple targets
 Options:
-  -t, --tag    : execute 'commitversion' and 'tagversion' subcommands after build and save
-  -p, --push   : execute 'pushversion' subcommand after build and save
-  -d, --deploy : execute 'deploy' subcommand after build and save
+  -t, --tag     : execute 'commitversion' and 'tagversion' subcommands after build and save
+  -p, --push    : execute 'pushversion' subcommand after build and save
+  -d, --deploy  : execute 'deploy' subcommand after build and save
+  -r, --rebuild : retry building (do not re-initialize current target)
+  -f, --rebuild : only finalize (no target init, no build)
 
 Switches to, builds, packages, saves and optionally commits and tags, pushes and deploys the listed <targets>
 
@@ -1433,6 +1517,8 @@ Note:
 ENDHELP
 }
 command:buildtargets() {
+  local DO_TARGET=1
+  local DO_BUILD=1
   local DO_TAG=0
   local DO_PUSH=0
   local DO_DEPLOY=0
@@ -1442,7 +1528,10 @@ command:buildtargets() {
       "-t"|"--tag") DO_TAG=1;;
       "-d"|"--deploy") DO_DEPLOY=1;;
       "-p"|"--push") DO_PUSH=1;;
-      "all") local TGS="${P44B_SRC_DIR}/${CONFIGS_DIR}/diffconfig"*; for TG in ${TGS}; do TARGETS="$TARGETS ${TG##*/diffconfig-}"; done;;
+      "-r"|"--rebuild") DO_TARGET=0;;
+      "-f"|"--finalize") DO_BUILD=0, DO_TARGET=0;;
+      "CURRENT") TARGETS="${TARGET_ID}"; DO_TARGET=0;;
+      "ALL") local TGS="${P44B_SRC_DIR}/${CONFIGS_DIR}/diffconfig"*; for TG in ${TGS}; do TARGETS="$TARGETS ${TG##*/diffconfig-}"; done;;
       *) TARGETS="$TARGETS $ARG";;
     esac
   done
@@ -1456,13 +1545,6 @@ command:buildtargets() {
     done
     return 0
   fi
-  # check for "ALL"
-  if [[ "${TARGETS}" == " ALL" ]]; then
-    TARGETS=
-    for TG in "${P44B_SRC_DIR}/${CONFIGS_DIR}/diffconfig"*; do
-      TARGETS="$TARGETS ${TG##*/diffconfig-}"
-    done
-  fi
   # source preparation script, if any
   local PREPINC="${P44B_SRC_DIR}/${SCRIPTS_DIR}/buildprep.inc"
   if [ -x "${PREPINC}" ]; then
@@ -1472,13 +1554,31 @@ command:buildtargets() {
   fi
   # now do targets
   for TARGET in $TARGETS; do
+    #
+    if [[ ${DO_TARGET} == 0 && "${TARGET}" != "${TARGET_ID}" ]]; then
+      die "${TARGET} must be initialized first (currently initialized: ${TARGET_ID})"
+    fi
     echo
     notice "======================================================================="
     starting "target '${TARGET}'"
-    command:target "${TARGET}" \
-      && command:build ${P44B_BUILD_ARGS} \
-      && command:package ${P44B_PACKAGE_ARGS}
-    local RET=$?
+    local RET=0
+    # init target
+    if [[ ${DO_TARGET} -ne 0 ]]; then
+      command:target "${TARGET}"
+      RET=$?
+    fi
+    # next target must initialize anyway
+    DO_TARGET=1
+    # build
+    if [[ ${RET} -eq 0 && ${DO_BUILD} -ne 0 ]]; then
+      command:build ${P44B_BUILD_ARGS}
+      RET=$?
+    fi
+    if [[ ${RET} -eq 0 ]]; then
+      command:package ${P44B_PACKAGE_ARGS}
+      local RET=$?
+    fi
+    # save/deploy/tag/push
     if [[ ${RET} -eq 0 ]]; then
       command:save
       if [[ ${DO_DEPLOY} -ne 0 ]]; then
@@ -1733,41 +1833,6 @@ ENDHELP
 }
 command:test() {
   notice "dummy"
-}
-
-
-# usage
-command:usage() {
-  notice "Usage:"
-  echo "  ${SCRIPTNAME} <command> --help                 - show help for <command>"
-  info "Setup and cleanup"
-  echo "  ${SCRIPTNAME} new <p44build_dir>               - create a fresh p44build directory as a starting point for a new project"
-  echo "  ${SCRIPTNAME} init <p44build_dir>              - initialize buildroot from a an existing p44build directory"
-  echo "  ${SCRIPTNAME} switch <p44build_dir>            - (try to) switch to a p44build source directory w/o changing buildroot (possible if patches are equal)"
-  echo "  ${SCRIPTNAME} prepare                          - prepare (patch) tree from ${ALIAS} info"
-  echo "  ${SCRIPTNAME} instpkg                          - install those packages from feeds that were present at last ${ALIAS} save"
-  echo "  ${SCRIPTNAME} restore [opts] <what>...         - restore saved state, --apply to actually modify"
-  echo "  ${SCRIPTNAME} cleanup                          - clean up buildroot from all p44b stuff (patches, extra files)"
-  echo "  ${SCRIPTNAME} tidy                             - remove debris such as macOS .DS_Store files from buildroot"
-  info "Build commands (in usual sequence)"
-  echo "  ${SCRIPTNAME} target [<target>]                - list targets or switch to specified target configuration"
-  echo "  ${SCRIPTNAME} build [<args>...]                - call build.sh script if existing, otherwise just call (g)make, with optional args"
-  echo "  ${SCRIPTNAME} package [<args>...]              - call package.sh script with with optional args"
-  echo "  ${SCRIPTNAME} deploy [<args>...]               - call deploy.sh script with optional args"
-  echo "  ${SCRIPTNAME} flash [<args>...]                - call flash.sh script with optional args"
-  echo "  ${SCRIPTNAME} save                             - save current build's SHAs of buildroot and tracked packages"
-  echo "  ${SCRIPTNAME} commitversion                    - commit the currently saved version to the feed the ${ALIAS} source directory is in"
-  echo "  ${SCRIPTNAME} tagversion [-p|--packages]       - tag the currently saved and committed version"
-  echo "  ${SCRIPTNAME} pushversion <remote>             - push the currently checked out branch and the version tag to remote"
-  info "Automated build of multiple targets"
-  echo "  ${SCRIPTNAME} buildtargets [opts] <targets>... - switch to, build, package, save, commit, tag, deploy <targets>"
-  info "Testing and debugging"
-  echo "  ${SCRIPTNAME} send [opts] <file> [<remote>]    - send file/executable/package/debuggable to target"
-  echo "  ${SCRIPTNAME} debug [<executable>]             - start debugging <executable> with gdb"
-  echo "  ${SCRIPTNAME} get <file> [<remote>]            - get <remote file> to local <dir> (default: /tmp) from \$TARGET_HOST via scp"
-  echo "  ${SCRIPTNAME} login [<host>]                   - connect to specified host or TARGET_HOST via ssh w/o identity checking"
-  echo "  ${SCRIPTNAME} run <script> [<args>...]         - run script from ${ALIAS} scripts folder"
-  echo ""
 }
 
 
