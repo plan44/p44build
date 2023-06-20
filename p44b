@@ -33,22 +33,23 @@ command:usage() {
   echo "  ${SCRIPTNAME} get <file> [<remote>]            - get <remote file> to local <dir> (default: /tmp) from \$TARGET_HOST via scp"
   echo "  ${SCRIPTNAME} login [<host>]                   - connect to specified host or TARGET_HOST via ssh w/o identity checking"
   echo "  ${SCRIPTNAME} run <script> [<args>...]         - run script from ${ALIAS} scripts folder"
-  echo "  source ${SCRIPTNAME} targetenv                 - set environment variables and PATH to directly work with compiler in build dirs"
+  echo "  ${SCRIPTNAME} buildshell                       - start new shell with environment and PATH to directly work with compiler (in target build dir)"
+#   echo "  source ${SCRIPTNAME} buildenv                 - set environment variables and PATH to directly work with compiler in build dirs"
   echo ""
 }
 
 
-help:targetenv() {
+help:buildenv() {
 cat >&2 <<ENDHELP
-Usage: source $0 targetenv
+Usage: source $0 buildenv
 
-Sets environment variables (including PATH) to allow directly working in a package's
-build directory with the current target's compilers and tools
+NOP AT THIS TIME
 
 ENDHELP
 }
-include:targetenv() {
-  ecgo "TARGETENV"
+include:buildenv() {
+  echo "NOP - Not yet implemented"
+  return
 }
 
 # Check if script is sourced
