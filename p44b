@@ -261,8 +261,10 @@ read_config()
   BUILD_DIR="${BUILDROOT}/build_dir/${TARGETID}"
   # toolchain root
   TOOLCHAIN_ROOT="${BUILDROOT}/build_dir/${TOOLCHAINID}"
-  # staging root
-  STAGING_ROOT="${BUILDROOT}/staging_dir/${TARGETID}/root-${CONFIG_TARGET_BOARD}"
+  # staging dir and rootfs dir
+  STAGING_DIR="${BUILDROOT}/staging_dir/${TARGETID}"
+  STAGING_ROOTFS="${STAGING_DIR}/root-${CONFIG_TARGET_BOARD}"
+  STAGING_TOOLCHAIN="${BUILDROOT}/staging_dir/${TOOLCHAINID}"
   # target bin dir
   TARGET_BIN="${BUILDROOT}/bin/targets/${CONFIG_TARGET_BOARD}/${CONFIG_TARGET_SUBTARGET}"
   # architecture bin dir
@@ -1375,7 +1377,8 @@ command:status() {
       info "Directories"
       echo "- toolchain       : ${TOOLCHAIN_ROOT}"
       echo "- Build dir       : ${BUILD_DIR}"
-      echo "- staging_dir     : ${STAGING_ROOT}"
+      echo "- staging_dir     : ${STAGING_DIR}"
+      echo "- staging rootfs  : ${STAGING_ROOTFS}"
       echo "- target bin dir  : ${TARGET_BIN}"
       echo "- arch bin dir    : ${ARCH_BIN}"
       info "Current version (configured in .config)"
@@ -1599,6 +1602,27 @@ command:buildtargets() {
 }
 
 
+help:buildshell() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} buildshell
+
+starts a build shell for the current target
+
+ENDHELP
+}
+command:buildshell() {
+  read_config ".config" # current settings, not saved ones
+  local COMPILER_PATH=/Volumes/CaseSens/openwrt-2/staging_dir/toolchain-mipsel_24kc_gcc-11.2.0_musl/bin
+  pushd "${BUILD_DIR}" >/dev/null
+  echo
+  notice "Entering build subshell in build dir for '${TARGET_ID}':"
+  info "You can enter a package build dir from here and execute build commands"
+  STAGING_DIR="${STAGING_DIR}" PATH="${STAGING_TOOLCHAIN}/bin:${PATH}" ${SHELL}
+  popd >/dev/null
+  notice "Leaving build subshell - back in buildroot"
+  echo
+}
+
 
 help:run() {
 cat >&2 <<ENDHELP
@@ -1664,8 +1688,8 @@ command:send() {
   while [[ "${1:0:1}" == "-" ]]; do
     case "$1" in
       "-p"|"--package") SRCFILE="${ARCH_BIN}/"; SRCSUFFIX='*'"_${CONFIG_TARGET_ARCH_PACKAGES}.ipk";shift 1;;
-      "-e"|"--executable") SRCFILE="${STAGING_ROOT}/usr/bin/" ;shift 1;;
-      "-d"|"--debuggable") SRCFILE="${STAGING_ROOT}/usr/bin/" ; DO_STRIP=1; shift 1;;
+      "-e"|"--executable") SRCFILE="${STAGING_ROOTFS}/usr/bin/" ;shift 1;;
+      "-d"|"--debuggable") SRCFILE="${STAGING_ROOTFS}/usr/bin/" ; DO_STRIP=1; shift 1;;
       "-s"|"--strip") SRCFILE="" ; DO_STRIP=1; shift 1;;
       *) syntax "unknown option $1";;
     esac
