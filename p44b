@@ -1039,7 +1039,7 @@ command:save() {
     info "=== saving installed packages into ${TRACKING_DIR}/install_packages.sh"
     local INSTPKGS="${P44B_SRC_DIR}/${TRACKING_DIR}/install_packages.sh"
     echo "# Run this script to install all packages that were installed at the time of p44b save" >"${INSTPKGS}"
-    FEEDS=$(find ${BUILDROOT}/package/feeds -depth 1 -type d -exec "echo" "{}" ";")
+    FEEDS=$(find ${BUILDROOT}/package/feeds -mindepth 1 -maxdepth 1 -type d -exec "echo" "{}" ";")
     for FEED in ${FEEDS}; do
       FEEDNAME=$(basename ${FEED})
       plain "# saving installed packages from ${FEEDNAME}..."
