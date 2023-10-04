@@ -1357,7 +1357,8 @@ command:status() {
     syntax "no arguments expected"
   fi
   if [ ! -z "${P44B_SRC_DIR}" ]; then
-    notice "Initialized with ${ALIAS} sources at '${P44B_SRC_DIR}'"
+    info "p44build"
+    notice "- p44build dir    : ${P44B_SRC_DIR}"
     set_script_env # using current settings, not saved ones - needed to get BUILT_IMAGE
     if [ ! -f "${P44B_STATE_DIR}/prepared" ]; then
       warn "buildroot is not yet prepared -> use ${SCRIPTNAME} prepare"
