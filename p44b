@@ -1064,8 +1064,8 @@ command:save() {
   if [[ ${SAVEFEEDS} -eq 1 ]]; then
     # Capture state of feeds
     info "=== saving feed states"
-    plain "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_VERS"
-    plain "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_SHA"
+    echo "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_VERS"
+    echo "# feed giturl:gitref" >"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_SHA"
     pushd "${BUILDROOT}/feeds" >/dev/null
     for FEED in !(*.*) ; do
       pushd "${FEED}" >/dev/null
