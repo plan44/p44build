@@ -1737,11 +1737,14 @@ command:send() {
 
 help:debug() {
 cat >&2 <<ENDHELP
-Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} <executable>
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} [-s] <executable>
 
 Starts debugging a executable
 - sends stripped executable to TARGET_HOST (using ${SCRIPTNAME} send -d <executable>) as /tmp/debugtarget
 - starts remote debugging via ./scripts/remote-gdb
+
+Options:
+  -s : do not try to send binary (for cases where it is not at normal path)
 
 Notes:
 - the TARGET_HOST environment variable must be set to the hostname or IP address of the target
@@ -1749,11 +1752,22 @@ Notes:
 ENDHELP
 }
 command:debug() {
+  local DO_SEND=1
+  if [[ $1 -eq "-s" ]]; then
+    DO_SEND=0
+    shift 1
+  fi
   if [[ $# -eq 0 ]]; then
     die "need to specify executable"
   fi
   local EXECNAME=$1
-  command:send -d ${EXECNAME}
+  if [[ ${DO_SEND} -ne 0 ]]; then
+    command:send -d ${EXECNAME}
+  else
+    # need to read .config because we did not call command:send
+    read_config ".config" # current settings, not saved ones
+    warn "executable ${EXECNAME} must have been brought to target /tmp/debugtarget before!"
+  fi
   local EXECS=$(ls -1t ${BUILDROOT}/build_dir/${TARGETID}/${EXECNAME}-*/${EXECNAME})
   set -- $EXECS
   local EXEC=$1
