@@ -1671,8 +1671,11 @@ Options
                      stripped before sending. Target file name defaults to "debugtarget".
   -s, --strip      : file will be stripped before sending (as with --debuggable), but no path
                      prefix will be used. Target file name defaults to "debugtarget".
-  -p, --package    : file is a package specification in the form feed/package, the first match of "package"
-                     with an actual package .ipk for the current target will be sent.
+  -p, --package    : file is a package specification in the form <feed>/<package>, the first match of "package"
+                     with an actual package .ipk for the current architecture will be sent.
+  -t, --tpackage   : file is a target package specification in the form <package>, the first match of "package"
+                     with an actual package .ipk for the current target will be sent. Note that kernel modules
+                     need to be specified including the `kmod-` prefix.
 Notes:
 - the TARGET_HOST environment variable must be set to the hostname or IP address of the target
 
@@ -1689,6 +1692,7 @@ command:send() {
   while [[ "${1:0:1}" == "-" ]]; do
     case "$1" in
       "-p"|"--package") SRCFILE="${ARCH_BIN}/"; SRCSUFFIX='*'"_${CONFIG_TARGET_ARCH_PACKAGES}.ipk";shift 1;;
+      "-t"|"--tpackage") SRCFILE="${TARGET_BIN}/packages/"; SRCSUFFIX='*'"_${CONFIG_TARGET_ARCH_PACKAGES}.ipk";shift 1;;
       "-e"|"--executable") SRCFILE="${STAGING_ROOTFS}/usr/bin/" ;shift 1;;
       "-d"|"--debuggable") SRCFILE="${STAGING_ROOTFS}/usr/bin/" ; DO_STRIP=1; shift 1;;
       "-s"|"--strip") SRCFILE="" ; DO_STRIP=1; shift 1;;
