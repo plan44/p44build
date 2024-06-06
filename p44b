@@ -1671,6 +1671,9 @@ Options
                      stripped before sending. Target file name defaults to "debugtarget".
   -s, --strip      : file will be stripped before sending (as with --debuggable), but no path
                      prefix will be used. Target file name defaults to "debugtarget".
+  -b, --built      : file will be stripped before sending (as with --strip), current target's
+                     build dir will be used as prefix, so <packagedir>/<executable> can be specified.
+                     Target file name defaults to "debugtarget".
   -p, --package    : file is a package specification in the form <feed>/<package>, the first match of "package"
                      with an actual package .ipk for the current architecture will be sent.
   -t, --tpackage   : file is a target package specification in the form <package>, the first match of "package"
@@ -1695,6 +1698,7 @@ command:send() {
       "-t"|"--tpackage") SRCFILE="${TARGET_BIN}/packages/"; SRCSUFFIX='*'"_${CONFIG_TARGET_ARCH_PACKAGES}.ipk";shift 1;;
       "-e"|"--executable") SRCFILE="${STAGING_ROOTFS}/usr/bin/" ;shift 1;;
       "-d"|"--debuggable") SRCFILE="${STAGING_ROOTFS}/usr/bin/" ; DO_STRIP=1; shift 1;;
+      "-b"|"--built") SRCFILE="${BUILD_DIR}/" ; DO_STRIP=1; shift 1;;
       "-s"|"--strip") SRCFILE="" ; DO_STRIP=1; shift 1;;
       *) syntax "unknown option $1";;
     esac
