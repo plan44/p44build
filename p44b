@@ -568,7 +568,7 @@ command:switch() {
     die "to-be-switched to directory is based on different buildroot checkout ('${NEW_CHECKOUT}' rather than '${OLD_CHECKOUT}') - use 'cleanup'/'init'"
   fi
   # clean feeds from MacOS folder state files (there could be some in the patches, too)
-  find ${BUILDROOT}/feeds -name .DS_Store -delete
+  command:tidy
   # check for same set of global patches (note: no check for legacy "lede-patches" here!)
   local OLD_PATCHES="${P44B_SRC_DIR}/${GLOBAL_PATCHES_DIR}"
   local NEW_PATCHES="${NEW_P44B_DIR}/${GLOBAL_PATCHES_DIR}"
@@ -694,7 +694,7 @@ command:prepare() {
 	    info "(just use quilt manually to review, fix and apply all remaining patches to complete the 'prepare' operation)"
     fi
     # clean feeds from MacOS folder state files
-    find ${BUILDROOT}/feeds -name .DS_Store -delete
+    command:tidy
     # set flag
     touch "${P44B_STATE_DIR}/prepared"
   else
@@ -1010,7 +1010,7 @@ command:save() {
   starting "saving build state"
   pushd ${BUILDROOT} >/dev/null
   # - clean feeds from MacOS folder state files
-  find ${BUILDROOT}/feeds -name .DS_Store -delete
+  command:tidy
   # - make sure we have the tracking dir
   mkdir "${P44B_SRC_DIR}/${TRACKING_DIR}" 2>/dev/null
   # Now the different steps
@@ -1223,7 +1223,7 @@ command:commitversion() {
     die ".config does not contain version information"
   fi
   # clean feeds from MacOS folder state files
-  find ${BUILDROOT}/feeds -name .DS_Store -delete
+  command:tidy
   # optionally modify package makefiles and set PKG_SOURCE_VERSION to SHA
   if [[ ${DO_FREEZE_VERS} -ne 0 ]]; then
     local PACKAGESTATES="${P44B_SRC_DIR}/${TRACKING_DIR}/packages_SHA"
@@ -1416,6 +1416,8 @@ command:build() {
     info "no build.sh script in ${ALIAS} folder -> just using $MAKE"
     BUILDCMD="${MAKE}"
   fi
+  # clean tree from (macos) debris - which otherwise might get included in packages etc.
+  command:tidy
   # run build script/make
   set_script_env
   info $BUILDCMD "$@"
@@ -1865,7 +1867,7 @@ Note: especially .DS_Store files can make quilt diff / refresh fail,
 ENDHELP
 }
 command:tidy() {
-  # clean feeds from MacOS folder state files (there could be some in the patches, too)
+  # clean feeds from MacOS folder state files
   find ${BUILDROOT}/feeds -name .DS_Store -delete
 }
 
