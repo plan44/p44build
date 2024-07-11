@@ -35,6 +35,8 @@ command:usage() {
   echo "  ${SCRIPTNAME} run <script> [<args>...]         - run script from ${ALIAS} scripts folder"
   echo "  ${SCRIPTNAME} buildshell                       - start new shell with environment and PATH to directly work with compiler (in target build dir)"
 #   echo "  source ${SCRIPTNAME} buildenv                 - set environment variables and PATH to directly work with compiler in build dirs"
+  echo "  ${SCRIPTNAME} intenv                           - start new shell with environment set for p44b internal development / snippets trying"
+  echo "  ${SCRIPTNAME} metapatch                        - 'meta'-patch (patch package, tool, kernel and record added patches in p44 global_patches)"
   echo ""
 }
 
@@ -162,6 +164,68 @@ if [ -t 1 ]; then
   fi
 fi
 
+
+findquilt() {
+  # DO NOT prefer self-built quilt over external one
+  QUILT=$(which quilt)
+#   # prefer self-built quilt over external one
+#   QUILT="${BUILDROOT}/staging_dir/host/bin/quilt"
+#   if [ ! -x $QUILT ]; then
+#     QUILT=$(which quilt)
+#     if [[ $? -ne 0 ]]; then
+#       die "need quilt to be installed externally"
+#     fi
+#   fi
+}
+
+
+# handle special internal commands
+
+internal:quiltwrapper() {
+  findquilt
+  info "quiltwrapper $@"
+  info "- QUILT=$_N$QUILT"
+  info "- QUILTTARGET=$_N$QUILTTARGET"
+  info "- BUILDROOT=$_N$BUILDROOT"
+  info "- PACKAGEMAKEPATH=$_N$PACKAGEFILESPATH"
+  info "- PACKAGEFILESPATH=$_N$PACKAGEFILESPATH"
+  case "$1" in
+    "import")
+      notice "to be implemented: handle 'import' in metapatch:$_N quilt $@"
+      # just forward to quilt for now
+      ${QUILT} $@
+      ;;
+    "new"|"import")
+      local PATCHPATH=$2
+      local PATCHNAME="${PATCHPATH}"
+      if [[ ${PATCHNAME} != *.patch ]]; then
+        die "patch name must have .patch file extension"
+      fi
+      if [[ $1 == "import" ]]; then
+        # extract patchname
+        PATCHNAME="${PATCHNAME##*/}"
+      fi
+      # make sure the (future) patch file is added to metapatch
+      pushd ${BUILDROOT} >/dev/null
+      ${QUILT} add "${PACKAGEMAKEPATH}/patches/${PATCHNAME}"
+      popd >/dev/null
+      # now forward to quilt
+      ${QUILT} $@
+      ;;
+    *)
+      # just forward to quilt
+      ${QUILT} $@
+      ;;
+  esac
+}
+
+case "${_p44_internal_cmd}" in
+  "_quiltwrapper") internal:quiltwrapper $@; exit 0;;
+esac
+
+
+# normal processing
+
 # need extglob matching
 shopt -s extglob
 
@@ -174,6 +238,9 @@ fi
 
 # the alias name to be used for referring to the script
 ALIAS="p44b"
+
+# find quilt for internal use
+findquilt
 
 # prefer gmake over make (because latter is usually outdated on macOS, while former - from brew - is ok)
 MAKE=$(which gmake)
@@ -623,7 +690,7 @@ command:cleanup() {
   rm "${BUILDROOT}/.config" 2>/dev/null
   # - make sure patches are removed
   pushd "${BUILDROOT}" >/dev/null
-  quilt pop -af
+  ${QUILT} pop -af
   # - remove the quilt working dir
   rm -rf "${BUILDROOT}/.pc"
   # - remove the softlink to the actual patches (but only softlink!)
@@ -683,13 +750,13 @@ command:prepare() {
       return 1
     fi
     # remove patches that might be there
-    quilt pop -af
+    ${QUILT} pop -af
     # stash just in case, to avoid loosing data
     git stash
     # switch to correct buildroot state
     git reset --hard
     # apply the patches
-    if ! quilt push -a; then
+    if ! ${QUILT} push -a; then
 	    err "Error: applying global patches not completely successful"
 	    info "(just use quilt manually to review, fix and apply all remaining patches to complete the 'prepare' operation)"
     fi
@@ -1605,6 +1672,39 @@ command:buildtargets() {
 }
 
 
+help:intenv() {
+cat >&2 <<ENDHELP
+Usage: $0 intenv
+
+NOP AT THIS TIME
+
+ENDHELP
+}
+command:intenv() {
+  read_config ".config" # current settings, not saved ones
+  echo
+  pushd "${BUILD_DIR}" >/dev/null
+  echo
+  notice "Entering subshell with p44b internal vars set:"
+  BUILDROOT="${BUILDROOT}" \
+  TARGETID="${TARGETID}" \
+  TOOLCHAINID="${TOOLCHAINID}" \
+  BUILD_DIR="${BUILD_DIR}" \
+  TOOLCHAIN_ROOT="${TOOLCHAIN_ROOT}" \
+  STAGING_DIR="${STAGING_DIR}" \
+  STAGING_ROOTFS="${STAGING_ROOTFS}" \
+  STAGING_TOOLCHAIN="${STAGING_TOOLCHAIN}" \
+  TARGET_BIN="${TARGET_BIN}" \
+  ARCH_BIN="${ARCH_BIN}" \
+  IMG_DIST_NAME="${IMG_DIST_NAME}" \
+  IMG_DIST_NAME_LC="${IMG_DIST_NAME_LC}" \
+  ${SHELL}
+  popd >/dev/null
+  notice "Leaving subshell - back in buildroot"
+  echo
+}
+
+
 help:buildshell() {
 cat >&2 <<ENDHELP
 Usage: ${SCRIPTNAME} buildshell
@@ -1625,6 +1725,86 @@ command:buildshell() {
   notice "Leaving build subshell - back in buildroot"
   echo
 }
+
+
+help:metapatch() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} metapatch (new|prep|edit|update|refresh)
+
+ENDHELP
+}
+command:metapatch() {
+  local SUBCMD="$1"
+  shift 1
+  case "$SUBCMD" in
+    "new")
+      if [[ $# -lt 1 ]]; then
+        syntax "missing metapatch name"
+      fi
+      METAPATCH="$1"
+      ${QUILT} new "${METAPATCH}.diff"
+      ;;
+    "edit"|"prep")
+      if [[ $# -lt 1 ]]; then
+        syntax "missing package/tool make path"
+      fi
+      PACKAGEMAKEPATH="$1"
+      PACKAGEFILESPATH="${PACKAGEMAKEPATH}"
+      if [ ! -d "${PACKAGEFILESPATH}" ]; then
+        die "package files not found at ${PACKAGEFILESPATH}"
+      fi
+      TYPE="${PACKAGEMAKEPATH%%/*}"
+      PACKAGE="${PACKAGEMAKEPATH##*/}"
+      case "${TYPE}" in
+        "tools") PACKAGESDIR="${BUILDROOT}/build_dir/host";;
+        "package") PACKAGESDIR="${BUILD_DIR}";;
+        *) syntax "unknown package type ${TYPE}";;
+      esac
+      PACKAGEBUILDDIR=$(ls -dt ${PACKAGESDIR}/${PACKAGE}-* | head -1)
+      #echo "subcmd=$SUBCMD"
+      if [[ "$SUBCMD" == "prep" ]]; then
+        # first prepare package for metapatching
+        notice "preparing $_N$PACKAGEMAKEPATH$_NOTICE for patching..."
+        ${SCRIPTNAME} build ${PACKAGEMAKEPATH}/{clean,prepare} V=s QUILT=1
+      fi
+      # anyway, enter patchshell
+      pushd "${PACKAGEBUILDDIR}" >/dev/null
+      notice "entering subshell for patching in: ${PACKAGEBUILDDIR}"
+      echo
+      info "current patches (quilt series):"
+      ${QUILT} series
+      notice "use $_ERR\$quilt$_NOTICE to work with patches, which is a wrapper in the subshell that also manages adding created patches to metapatch"
+      # call the subshell
+      PACKAGEMAKEPATH="${PACKAGEMAKEPATH}" \
+      PACKAGEFILESPATH="${PACKAGEFILESPATH}" \
+      QUILTTARGET="${PACKAGEBUILDDIR}" \
+      BUILDROOT="${BUILDROOT}" \
+      _p44_internal_cmd="_quiltwrapper" \
+      quilt="${SCRIPTFILE}" \
+      ${SHELL}
+      # back from subshell
+      popd >/dev/null
+      notice "Leaving patch subshell - back in buildroot"
+      echo
+      info "now might want to use ${SCRIPTNAME} update to get patches back into package sources"
+      ;;
+    "update")
+      if [[ $# -lt 1 ]]; then
+        syntax "missing package/tool make path"
+      fi
+      PACKAGEMAKEPATH="$1"
+      ${SCRIPTNAME} build ${PACKAGEMAKEPATH}/update V=s
+      ;;
+    "update")
+      die "not yet implemented";;
+    *)
+      syntax "unknown subcommand $SUBCMD";;
+  esac
+}
+
+
+
+
 
 
 help:run() {
