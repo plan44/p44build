@@ -1672,20 +1672,8 @@ command:buildtargets() {
 }
 
 
-help:intenv() {
-cat >&2 <<ENDHELP
-Usage: $0 intenv
-
-NOP AT THIS TIME
-
-ENDHELP
-}
-command:intenv() {
-  read_config ".config" # current settings, not saved ones
-  echo
-  pushd "${BUILD_DIR}" >/dev/null
-  echo
-  notice "Entering subshell with p44b internal vars set:"
+subshellwithenv() {
+  env "$@" \
   BUILDROOT="${BUILDROOT}" \
   TARGETID="${TARGETID}" \
   TOOLCHAINID="${TOOLCHAINID}" \
@@ -1699,8 +1687,27 @@ command:intenv() {
   IMG_DIST_NAME="${IMG_DIST_NAME}" \
   IMG_DIST_NAME_LC="${IMG_DIST_NAME_LC}" \
   ${SHELL}
+}
+
+
+
+help:intenv() {
+cat >&2 <<ENDHELP
+Usage: $0 intenv
+
+Start a subshell with p44b internal variables exported
+
+ENDHELP
+}
+command:intenv() {
+  read_config ".config" # current settings, not saved ones
+  echo
+  pushd "${BUILD_DIR}" >/dev/null
+  echo
+  notice "Entering subshell with p44b internal vars set:"
+  subshellwithenv
   popd >/dev/null
-  notice "Leaving subshell - back in buildroot"
+  notice "Leaving intenv subshell - back in buildroot"
   echo
 }
 
@@ -1715,12 +1722,13 @@ ENDHELP
 }
 command:buildshell() {
   read_config ".config" # current settings, not saved ones
-  local COMPILER_PATH=/Volumes/CaseSens/openwrt-2/staging_dir/toolchain-mipsel_24kc_gcc-11.2.0_musl/bin
   pushd "${BUILD_DIR}" >/dev/null
   echo
   notice "Entering build subshell in build dir for '${TARGET_ID}':"
   info "You can enter a package build dir from here and execute build commands"
-  STAGING_DIR="${STAGING_DIR}" PATH="${STAGING_TOOLCHAIN}/bin:${PATH}" ${SHELL}
+  subshellwithenv \
+    PATH="${STAGING_TOOLCHAIN}/bin:${PATH}"
+  #STAGING_DIR="${STAGING_DIR}" PATH="${STAGING_TOOLCHAIN}/bin:${PATH}" ${SHELL}
   popd >/dev/null
   notice "Leaving build subshell - back in buildroot"
   echo
@@ -1745,6 +1753,7 @@ command:metapatch() {
       ${QUILT} new "${METAPATCH}.diff"
       ;;
     "edit"|"prep")
+      read_config ".config" # current settings, not saved ones
       if [[ $# -lt 1 ]]; then
         syntax "missing package/tool make path"
       fi
@@ -1757,7 +1766,8 @@ command:metapatch() {
       PACKAGE="${PACKAGEMAKEPATH##*/}"
       case "${TYPE}" in
         "tools") PACKAGESDIR="${BUILDROOT}/build_dir/host";;
-        "package") PACKAGESDIR="${BUILD_DIR}";;
+        "package") PACKAGESDIR="${BUILD_DIR}"; err "!!!! Warning:$_N package build dir not correct";;
+        "target") PACKAGESDIR="${BUILD_DIR}/linux-${CONFIG_TARGET_BOARD}_${CONFIG_TARGET_SUBTARGET}";;
         *) syntax "unknown package type ${TYPE}";;
       esac
       PACKAGEBUILDDIR=$(ls -dt ${PACKAGESDIR}/${PACKAGE}-* | head -1)
@@ -1775,16 +1785,17 @@ command:metapatch() {
       ${QUILT} series
       notice "use $_ERR\$quilt$_NOTICE to work with patches, which is a wrapper in the subshell that also manages adding created patches to metapatch"
       # call the subshell
-      PACKAGEMAKEPATH="${PACKAGEMAKEPATH}" \
-      PACKAGEFILESPATH="${PACKAGEFILESPATH}" \
-      QUILTTARGET="${PACKAGEBUILDDIR}" \
-      BUILDROOT="${BUILDROOT}" \
-      _p44_internal_cmd="_quiltwrapper" \
-      quilt="${SCRIPTFILE}" \
-      ${SHELL}
+      subshellwithenv \
+        PACKAGEBUILDDIR="${PACKAGEBUILDDIR}" \
+        PACKAGEMAKEPATH="${PACKAGEMAKEPATH}" \
+        PACKAGEFILESPATH="${PACKAGEFILESPATH}" \
+        QUILTTARGET="${PACKAGEBUILDDIR}" \
+        BUILDROOT="${BUILDROOT}" \
+        _p44_internal_cmd="_quiltwrapper" \
+        quilt="${SCRIPTFILE}"
       # back from subshell
       popd >/dev/null
-      notice "Leaving patch subshell - back in buildroot"
+      notice "Leaving metapatch subshell - back in buildroot"
       echo
       info "now might want to use ${SCRIPTNAME} update to get patches back into package sources"
       ;;
