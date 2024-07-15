@@ -352,9 +352,12 @@ set_script_env()
   if [[ $? -eq 0 ]]; then
     set -- $SRCIMGS
     export BUILT_IMAGE=$1
+    # determine the base name
+    export BUILT_IMAGE_BASENAME="${BUILT_IMAGE%-${P44B_IMAGETYPE}*}"
   fi
   # - also publish some dirs with P44B_ prefix for convenience in called scripts/commands
   export BUILDROOT
+  export P44B_TARGET_ID="${TARGET_ID}"
   export P44B_IMAGETYPE
   export P44B_SRC_DIR
   export P44B_CONFIGS_DIR="${P44B_SRC_DIR}/${CONFIGS_DIR}"
