@@ -1673,6 +1673,7 @@ command:buildtargets() {
 
 
 subshellwithenv() {
+  # note: manipulating SHLVL to make it appear +1 in the subshell, not +3
   env "$@" \
   BUILDROOT="${BUILDROOT}" \
   TARGETID="${TARGETID}" \
@@ -1686,6 +1687,7 @@ subshellwithenv() {
   ARCH_BIN="${ARCH_BIN}" \
   IMG_DIST_NAME="${IMG_DIST_NAME}" \
   IMG_DIST_NAME_LC="${IMG_DIST_NAME_LC}" \
+  SHLVL="$(($SHLVL-1))" \
   ${SHELL}
 }
 
