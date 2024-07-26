@@ -22,7 +22,7 @@ command:usage() {
   echo "  ${SCRIPTNAME} deploy [<args>...]               - call deploy.sh script with optional args"
   echo "  ${SCRIPTNAME} flash [<args>...]                - call flash.sh script with optional args"
   echo "  ${SCRIPTNAME} save                             - save current build's SHAs of buildroot and tracked packages"
-  echo "  ${SCRIPTNAME} commitversion                    - commit the currently saved version to the feed the ${ALIAS} source directory is in"
+  echo "  ${SCRIPTNAME} commitversion [-f|--freeze]      - commit the currently saved version to the feed the p44build directory is in"
   echo "  ${SCRIPTNAME} tagversion [-p|--packages]       - tag the currently saved and committed version"
   echo "  ${SCRIPTNAME} pushversion <remote>             - push the currently checked out branch and the version tag to remote"
   info "Automated build of multiple targets"
@@ -1690,6 +1690,7 @@ subshellwithenv() {
   ARCH_BIN="${ARCH_BIN}" \
   IMG_DIST_NAME="${IMG_DIST_NAME}" \
   IMG_DIST_NAME_LC="${IMG_DIST_NAME_LC}" \
+  PATH="${BUILDROOT}/staging_dir/host/bin:${BUILDROOT}/staging_dir/hostpkg/bin:${PATH}" \
   SHLVL="$(($SHLVL-1))" \
   ${SHELL}
 }
