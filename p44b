@@ -290,6 +290,8 @@ TRACKING_DIR="tracking"
 SCRIPTS_DIR="scripts"
 GLOBAL_PATCHES_DIR="global-patches"
 
+GLOB_TOOLS_PATH="${BUILDROOT}/staging_dir/host/bin:${BUILDROOT}/staging_dir/hostpkg/bin"
+
 read_config()
 {
   pushd ${BUILDROOT} >/dev/null
@@ -1690,7 +1692,6 @@ subshellwithenv() {
   ARCH_BIN="${ARCH_BIN}" \
   IMG_DIST_NAME="${IMG_DIST_NAME}" \
   IMG_DIST_NAME_LC="${IMG_DIST_NAME_LC}" \
-  PATH="${BUILDROOT}/staging_dir/host/bin:${BUILDROOT}/staging_dir/hostpkg/bin:${PATH}" \
   SHLVL="$(($SHLVL-1))" \
   ${SHELL}
 }
@@ -1711,7 +1712,8 @@ command:intenv() {
   pushd "${BUILD_DIR}" >/dev/null
   echo
   notice "Entering subshell with p44b internal vars set:"
-  subshellwithenv
+  subshellwithenv \
+    PATH="${GLOB_TOOLS_PATH}:${PATH}"
   popd >/dev/null
   notice "Leaving intenv subshell - back in buildroot"
   echo
@@ -1733,7 +1735,7 @@ command:buildshell() {
   notice "Entering build subshell in build dir for '${TARGET_ID}':"
   info "You can enter a package build dir from here and execute build commands"
   subshellwithenv \
-    PATH="${STAGING_TOOLCHAIN}/bin:${PATH}"
+    PATH="${STAGING_TOOLCHAIN}/bin:${GLOB_TOOLS_PATH}:${PATH}"
   #STAGING_DIR="${STAGING_DIR}" PATH="${STAGING_TOOLCHAIN}/bin:${PATH}" ${SHELL}
   popd >/dev/null
   notice "Leaving build subshell - back in buildroot"
