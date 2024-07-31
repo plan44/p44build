@@ -1879,7 +1879,7 @@ Options
                      with an actual package .ipk for the current architecture will be sent.
   -t, --tpackage   : file is a target package specification in the form <package>, the first match of "package"
                      with an actual package .ipk for the current target will be sent. Note that kernel modules
-                     need to be specified including the `kmod-` prefix.
+                     need to be specified including the 'kmod-' prefix.
 Notes:
 - the TARGET_HOST environment variable must be set to the hostname or IP address of the target
 
@@ -1929,7 +1929,7 @@ command:send() {
     SRCFILE="$1"
   fi
   if [ ! -f "${SRCFILE}" ]; then
-    die "No file found to send"
+    die "File to be sent not found: ${SRCFILE}"
   fi
   if [[ ${DO_STRIP} -ne 0 ]]; then
     notice "# Stripping symbols from ${SRCFILE}"
