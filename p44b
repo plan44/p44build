@@ -187,7 +187,7 @@ internal:quiltwrapper() {
   info "- QUILT=$_N$QUILT"
   info "- QUILTTARGET=$_N$QUILTTARGET"
   info "- BUILDROOT=$_N$BUILDROOT"
-  info "- PACKAGEMAKEPATH=$_N$PACKAGEFILESPATH"
+  info "- PACKAGEMAKEPATH=$_N$PACKAGEMAKEPATH"
   info "- PACKAGEFILESPATH=$_N$PACKAGEFILESPATH"
   case "$1" in
     "import")
@@ -207,7 +207,7 @@ internal:quiltwrapper() {
       fi
       # make sure the (future) patch file is added to metapatch
       pushd ${BUILDROOT} >/dev/null
-      ${QUILT} add "${PACKAGEMAKEPATH}/patches/${PATCHNAME}"
+      ${QUILT} add "${PACKAGEFILESPATH}/patches/${PATCHNAME}"
       popd >/dev/null
       # now forward to quilt
       ${QUILT} $@
@@ -1745,8 +1745,11 @@ command:buildshell() {
 
 help:metapatch() {
 cat >&2 <<ENDHELP
-Usage: ${SCRIPTNAME} metapatch (new|prep|edit|update|refresh)
-
+Usage: ${SCRIPTNAME} metapatch new <meta-patch-name>
+       ${SCRIPTNAME} metapatch prep (tools/<toolname>|target/<targetname>|package/<packagename>) [<packagefilespath>]
+       ${SCRIPTNAME} metapatch edit (tools/<toolname>|target/<targetname>|package/<packagename>) [<packagefilespath>]
+       ${SCRIPTNAME} metapatch update
+       ${SCRIPTNAME} metapatch refresh
 ENDHELP
 }
 command:metapatch() {
@@ -1766,7 +1769,11 @@ command:metapatch() {
         syntax "missing package/tool make path"
       fi
       PACKAGEMAKEPATH="$1"
-      PACKAGEFILESPATH="${PACKAGEMAKEPATH}"
+      if [[ $# -gt 1 ]]; then
+        PACKAGEFILESPATH="$2"
+      else
+        PACKAGEFILESPATH="${PACKAGEMAKEPATH}"
+      fi
       if [ ! -d "${PACKAGEFILESPATH}" ]; then
         die "package files not found at ${PACKAGEFILESPATH}"
       fi
@@ -1805,7 +1812,7 @@ command:metapatch() {
       popd >/dev/null
       notice "Leaving metapatch subshell - back in buildroot"
       echo
-      info "now might want to use ${SCRIPTNAME} update to get patches back into package sources"
+      info "now might want to use `${SCRIPTNAME} metapatch update` to get patches back into package sources"
       ;;
     "update")
       if [[ $# -lt 1 ]]; then
@@ -1814,8 +1821,6 @@ command:metapatch() {
       PACKAGEMAKEPATH="$1"
       ${SCRIPTNAME} build ${PACKAGEMAKEPATH}/update V=s
       ;;
-    "update")
-      die "not yet implemented";;
     *)
       syntax "unknown subcommand $SUBCMD";;
   esac
@@ -2054,9 +2059,12 @@ command:login() {
 
 help:tidy() {
 cat >&2 <<ENDHELP
-Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:}
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} [-a|--all]
 
 remove debris such as macOS .DS_Store files from buildroot
+
+Options:
+  -a|--all : remove .DS_Store from entire buildroot
 
 Note: especially .DS_Store files can make quilt diff / refresh fail,
       so getting rid of those is important.
@@ -2067,7 +2075,11 @@ ENDHELP
 }
 command:tidy() {
   # clean feeds from MacOS folder state files
-  find ${BUILDROOT}/feeds -name .DS_Store -delete
+  if [[ "$1" == "-a" || "$1" == "--all" ]]; then
+    find ${BUILDROOT} -name .DS_Store -print -delete
+  else
+    find ${BUILDROOT}/feeds -name .DS_Store -print -delete
+  fi
 }
 
 
