@@ -1748,7 +1748,7 @@ cat >&2 <<ENDHELP
 Usage: ${SCRIPTNAME} metapatch new <meta-patch-name>
        ${SCRIPTNAME} metapatch prep (tools/<toolname>|target/<targetname>|package/<packagename>) [<packagefilespath>]
        ${SCRIPTNAME} metapatch edit (tools/<toolname>|target/<targetname>|package/<packagename>) [<packagefilespath>]
-       ${SCRIPTNAME} metapatch update
+       ${SCRIPTNAME} metapatch update (tools/<toolname>|target/<targetname>|package/<packagename>)
        ${SCRIPTNAME} metapatch refresh
 ENDHELP
 }
@@ -1812,7 +1812,7 @@ command:metapatch() {
       popd >/dev/null
       notice "Leaving metapatch subshell - back in buildroot"
       echo
-      info "now might want to use `${SCRIPTNAME} metapatch update` to get patches back into package sources"
+      warn "now might want to use '${SCRIPTNAME} metapatch update ${PACKAGEMAKEPATH}' to get patches back into package sources"
       ;;
     "update")
       if [[ $# -lt 1 ]]; then
