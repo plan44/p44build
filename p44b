@@ -754,6 +754,7 @@ command:prepare() {
       plain "  git checkout ${BUILDROOT_CHECKOUT}"
       return 1
     fi
+    notice "Applying global patches..."
     # remove patches that might be there
     ${QUILT} pop -af
     # stash just in case, to avoid loosing data
@@ -766,9 +767,11 @@ command:prepare() {
 	    info "(just use quilt manually to review, fix and apply all remaining patches to complete the 'prepare' operation)"
     fi
     # clean feeds from MacOS folder state files
+    notice "Tidy up (mostly macOS) debris..."
     command:tidy
     # set flag
     touch "${P44B_STATE_DIR}/prepared"
+    notice "preparation complete - now select target"
   else
     err "Error: no buildroot_checkout"
     info "(might want to use ${TRACKING_DIR}/buildroot_SHA or ${TRACKING_DIR}/buildroot_VERS)"
