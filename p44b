@@ -790,11 +790,17 @@ Installs all packages that were present at last ${SCRIPTNAME} save
 ENDHELP
 }
 command:instpkg() {
-  # checkout the buildroot checkout
-  if [ -f "${P44B_SRC_DIR}/${TRACKING_DIR}/install_packages.sh" ]; then
+  # install packages
+  if [ -f "${P44B_SRC_DIR}/${TRACKING_DIR}/link_packages.sh" ]; then
+    # fast method, just softlink (does not resolve dependencies)
+    bash ${P44B_SRC_DIR}/${TRACKING_DIR}/link_packages.sh
+    notice "packages installed by creating softlinks, dependencies not verified"
+  elif [ -f "${P44B_SRC_DIR}/${TRACKING_DIR}/install_packages.sh" ]; then
+    # slow method, install with ./scripts/feeds which does resolve dependencies
+    notice "this will take a while, installing with ./scripts/install is slow"
     bash ${P44B_SRC_DIR}/${TRACKING_DIR}/install_packages.sh
   else
-    warn "Warning: no install_packages.sh found."
+    warn "Warning: no link_packages.sh or install_packages.sh found."
     info "You might want to install all packages instead with"
     plain "./scripts/feeds install -a"
   fi
@@ -1114,6 +1120,13 @@ command:save() {
     info "=== saving installed packages into ${TRACKING_DIR}/install_packages.sh"
     local INSTPKGS="${P44B_SRC_DIR}/${TRACKING_DIR}/install_packages.sh"
     echo "# Run this script to install all packages that were installed at the time of p44b save" >"${INSTPKGS}"
+    echo "# Note: this script uses the official package installing, but is slow due to repeated invocation of ./scrips/feeds" >>"${INSTPKGS}"
+    local LNPKGS="${P44B_SRC_DIR}/${TRACKING_DIR}/link_packages.sh"
+    echo "# Run this script to install all packages that were installed at the time of p44b save" >"${LNPKGS}"
+    echo "# Note: this script uses a fast installation method that does not detect package dependencies." >>"${LNPKGS}"
+    echo "#   This is fine when the saved set is consistent and has resolved dependencies already." >>"${LNPKGS}"
+    echo "#   Otherwise, use install_packages.sh insetad, which is slow but resolves dependencies." >>"${LNPKGS}"
+    echo "" >>"${LNPKGS}"
     FEEDS=$(find ${BUILDROOT}/package/feeds -mindepth 1 -maxdepth 1 -type d -exec "echo" "{}" ";")
     for FEED in ${FEEDS}; do
       FEEDNAME=$(basename ${FEED})
@@ -1121,6 +1134,7 @@ command:save() {
       #echo "--- feed=${FEEDNAME} dir=${FEED}"
       pushd ${FEED} >/dev/null
       echo "./scripts/feeds update ${FEEDNAME}" >>"${INSTPKGS}"
+      # packages in feeds as configured, using scripts/feeds which will also install dependencies
       for INSTPDIR in *; do
         #echo "---   instpdir=${INSTPDIR}"
         local CMNT=""
@@ -1134,6 +1148,22 @@ command:save() {
         done
       done
       popd >/dev/null
+      # package links for fast-track installation without dependency checking (so set must be complete)
+      local FEEDLINKDIR="package/feeds/${FEEDNAME}"
+      echo "# install packages from feed '${FEEDNAME}':" >>"${LNPKGS}"
+      echo "# - make sure feed is current" >>"${LNPKGS}"
+      echo "./scripts/feeds update ${FEEDNAME}" >>"${LNPKGS}"
+      echo "# - softlink (=install) package dirs" >>"${LNPKGS}"
+      echo "pushd ${FEEDLINKDIR}" >>"${LNPKGS}"
+      for file in "${FEEDLINKDIR}"/*; do
+        if [ -L "$file" ]; then
+          local TARGET=$(readlink "$file")
+          echo "ln -s ${TARGET}" >>"${LNPKGS}"
+        fi
+      done
+      echo "popd" >>"${LNPKGS}"
+      echo "# - end of feed '${FEEDNAME}'" >>"${LNPKGS}"
+      echo "" >>"${LNPKGS}"
     done
   fi
   if [[ ${SAVEFEEDS} -eq 1 ]]; then
@@ -1238,7 +1268,7 @@ command:save() {
             # - create entry for tagging source repositories in tagging script
             if [[ ${PKG_SOURCE_URL:0:4} == "http" ]]; then
               warn "*** ${PKGNAMEVERS}: source URL is http(s), cannot be pushed to -> do not create tagging commands"
-              echo "# ${PKGNAMEVERS}: cannot push to http URL ${PKG_SOURCE_URL} -> cannot tag original" >>"${PUSHTAGS}"
+              echo "echo \"${PKGNAMEVERS}: cannot push to http URL ${PKG_SOURCE_URL} -> cannot tag package sources\"" >>"${PUSHTAGS}"
             else
               echo "# ${PKGNAMEVERS}: clone, tag and push back to original repo at ${PKG_SOURCE_URL}" >>"${PUSHTAGS}"
               if [[ -n "${GITVERS}" ]]; then
