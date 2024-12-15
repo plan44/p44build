@@ -1153,6 +1153,7 @@ command:save() {
       echo "# - make sure feed is current" >>"${LNPKGS}"
       echo "./scripts/feeds update ${FEEDNAME}" >>"${LNPKGS}"
       echo "# - softlink (=install) package dirs" >>"${LNPKGS}"
+      echo "mkdir -p ${FEEDLINKDIR}" >>"${LNPKGS}"
       echo "pushd ${FEEDLINKDIR}" >>"${LNPKGS}"
       for file in "${FEEDLINKDIR}"/*; do
         if [ -L "$file" ]; then
