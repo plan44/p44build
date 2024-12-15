@@ -1613,11 +1613,11 @@ Usage:
   ${SCRIPTNAME} ${FUNCNAME[0]##help:}                      - list available targets
   ${SCRIPTNAME} ${FUNCNAME[0]##help:} [opts] <targets>...  - build/package/save one or multiple targets
 Options:
-  -t, --tag     : execute 'commitversion' and 'tagversion' subcommands after build and save
-  -p, --push    : execute 'pushversion' subcommand after build and save
-  -d, --deploy  : execute 'deploy' subcommand after build and save
-  -r, --rebuild : retry building (do not re-initialize current target)
-  -f, --rebuild : only finalize (no target init, no build)
+  -t, --tag      : execute 'commitversion' and 'tagversion' subcommands after build and save
+  -p, --push     : execute 'pushversion' subcommand after build and save
+  -d, --deploy   : execute 'deploy' subcommand after build and save
+  -r, --rebuild  : retry building (do not re-initialize current target)
+  -f, --finalize : only finalize (no target init, no build)
 
 Switches to, builds, packages, saves and optionally commits and tags, pushes and deploys the listed <targets>
 
@@ -1666,7 +1666,7 @@ command:buildtargets() {
   fi
   # now do targets
   for TARGET in $TARGETS; do
-    #
+    # make sure target is or will be initialized
     if [[ ${DO_TARGET} == 0 && "${TARGET}" != "${TARGET_ID}" ]]; then
       die "${TARGET} must be initialized first (currently initialized: ${TARGET_ID})"
     fi
