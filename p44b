@@ -167,15 +167,14 @@ fi
 
 findquilt() {
   # DO NOT prefer self-built quilt over external one
-  QUILT=$(which quilt)
 #   # prefer self-built quilt over external one
 #   QUILT="${BUILDROOT}/staging_dir/host/bin/quilt"
-#   if [ ! -x $QUILT ]; then
-#     QUILT=$(which quilt)
-#     if [[ $? -ne 0 ]]; then
-#       die "need quilt to be installed externally"
-#     fi
-#   fi
+#  if [ ! -x $QUILT ]; then
+    QUILT=$(which quilt)
+    if [[ $? -ne 0 ]]; then
+      die "need quilt to be installed externally"
+    fi
+#  fi
 }
 
 
@@ -771,7 +770,7 @@ command:prepare() {
     command:tidy
     # set flag
     touch "${P44B_STATE_DIR}/prepared"
-    notice "preparation complete - now select target"
+    notice "preparation complete - now install needed packages and then select target"
   else
     err "Error: no buildroot_checkout"
     info "(might want to use ${TRACKING_DIR}/buildroot_SHA or ${TRACKING_DIR}/buildroot_VERS)"
