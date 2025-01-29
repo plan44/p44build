@@ -1782,7 +1782,6 @@ Usage: ${SCRIPTNAME} metapatch new <meta-patch-name>
        ${SCRIPTNAME} metapatch prep (tools/<toolname>|target/<targetname>|package/<packagename>) [<packagefilespath>]
        ${SCRIPTNAME} metapatch edit (tools/<toolname>|target/<targetname>|package/<packagename>) [<packagefilespath>]
        ${SCRIPTNAME} metapatch update (tools/<toolname>|target/<targetname>|package/<packagename>)
-       ${SCRIPTNAME} metapatch refresh
 ENDHELP
 }
 command:metapatch() {
