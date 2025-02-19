@@ -1921,6 +1921,7 @@ Options
   -t, --tpackage   : file is a target package specification in the form <package>, the first match of "package"
                      with an actual package .ipk for the current target will be sent. Note that kernel modules
                      need to be specified including the 'kmod-' prefix.
+  -f, --file       : resulting item (stripped binary, usually) is not sent, just filed.
 Notes:
 - the TARGET_HOST environment variable must be set to the hostname or IP address of the target
 
@@ -1933,6 +1934,7 @@ command:send() {
   local SRCFILE=""
   local SRCSUFFIX=""
   local DO_STRIP=0
+  local DO_SEND=1
   read_config ".config" # current settings, not saved ones
   while [[ "${1:0:1}" == "-" ]]; do
     case "$1" in
@@ -1942,6 +1944,7 @@ command:send() {
       "-d"|"--debuggable") SRCFILE="${STAGING_ROOTFS}/usr/bin/" ; DO_STRIP=1; shift 1;;
       "-b"|"--built") SRCFILE="${BUILD_DIR}/" ; DO_STRIP=1; shift 1;;
       "-s"|"--strip") SRCFILE="" ; DO_STRIP=1; shift 1;;
+      "-f"|"--file") DO_SEND=0; shift 1;;
       *) syntax "unknown option $1";;
     esac
   done
@@ -1977,11 +1980,16 @@ command:send() {
     "${TOOLCHAIN_ROOT}/binutils/binutils/strip-new" -o /tmp/debugtarget "${SRCFILE}"
     SRCFILE="/tmp/debugtarget"
   fi
-  notice "=== Sending: ${SRCFILE}"
-  notice "         to: ${TARGET_HOST}:${TARGPATH}"
-  info "scp ${SSH_OPTS} ${SRCFILE} root@${TARGET_HOST}:${TARGPATH}"
-  scp ${SSH_OPTS} "${SRCFILE}" "root@${TARGET_HOST}:${TARGPATH}"
-  finished "sending"
+  if [[ ${DO_SEND} -ne 0 ]]; then
+    notice "=== Sending: ${SRCFILE}"
+    notice "         to: ${TARGET_HOST}:${TARGPATH}"
+    info "scp ${SSH_OPTS} ${SRCFILE} root@${TARGET_HOST}:${TARGPATH}"
+    scp ${SSH_OPTS} "${SRCFILE}" "root@${TARGET_HOST}:${TARGPATH}"
+    finished "sending"
+  else
+    notice "=== not sending, prepared file is:"
+    ls -la "${SRCFILE}"
+  fi
 }
 
 
