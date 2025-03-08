@@ -1359,6 +1359,13 @@ command:commitversion() {
       fi
     done < "${PACKAGESTATES}"
   fi
+  # also add Makefile of the umbrella package, if one exists
+  if [[ -f "${P44B_SRC_DIR}/../Makefile" ]]; then
+    pushd "${P44B_SRC_DIR}/.." >/dev/null
+    git add Makefile
+    info "Staged umbrella package's Makefile: $(pwd)/Makefile"
+    popd >/dev/null
+  fi
   # now actually commit
   pushd "${P44B_SRC_DIR}" >/dev/null
   git add -A "${P44B_SRC_DIR}"
