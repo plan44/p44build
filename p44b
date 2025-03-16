@@ -28,12 +28,12 @@ command:usage() {
   info "Automated build of multiple targets"
   echo "  ${SCRIPTNAME} buildtargets [opts] <targets>... - switch to, build, package, save, commit, tag, deploy <targets>"
   info "Testing and debugging"
-  echo "  ${SCRIPTNAME} send [opts] <file> [<remote>]    - send file/executable/package/debuggable to target"
-  echo "  ${SCRIPTNAME} debug [<executable>]             - start debugging <executable> with gdb"
-  echo "  ${SCRIPTNAME} get <file> [<remote>]            - get <remote file> to local <dir> (default: /tmp) from \$TARGET_HOST via scp"
-  echo "  ${SCRIPTNAME} login [<host>]                   - connect to specified host or TARGET_HOST via ssh w/o identity checking"
+  echo "  ${SCRIPTNAME} send [opts] <file> [<remote>]    - send file/executable/package/debuggable to \$TARGET_HOST"
+  echo "  ${SCRIPTNAME} debug [<executable>]             - start debugging <executable> on \$TARGET_HOST with gdb"
+  echo "  ${SCRIPTNAME} get <remote file> [<dir>]        - get <remote file> to local <dir> (default: /tmp) from \$TARGET_HOST via scp"
+  echo "  ${SCRIPTNAME} login [<host>]                   - connect to specified host or \$TARGET_HOST via ssh w/o identity checking"
   echo "  ${SCRIPTNAME} run <script> [<args>...]         - run script from ${ALIAS} scripts folder"
-  echo "  ${SCRIPTNAME} buildshell                       - start new shell with environment and PATH to directly work with compiler (in target build dir)"
+  echo "  ${SCRIPTNAME} buildshell                       - start new shell with environment and PATH prepared to work with target compiler (in target build dir)"
 #   echo "  source ${SCRIPTNAME} buildenv                 - set environment variables and PATH to directly work with compiler in build dirs"
   echo "  ${SCRIPTNAME} intenv                           - start new shell with environment set for p44b internal development / snippets trying"
   echo "  ${SCRIPTNAME} metapatch                        - 'meta'-patch (patch package, tool, kernel and record added patches in p44 global_patches)"
@@ -416,7 +416,7 @@ command:new() {
   mkdir "${GLOBAL_PATCHES_DIR}"
   # create standard global patches
   info "creating standard global patch to .gitignore p44b temprorary dirs/files in openwrt tree"
-  cat >"$GLOBAL_PATCHES_DIR/001-gitignore.diff" <<'ENDPATCH'
+  cat >"$GLOBAL_PATCHES_DIR/001-gitignore.patch" <<'ENDPATCH'
 --- a/.gitignore
 +++ b/.gitignore
 @@ -12,7 +12,7 @@
@@ -439,7 +439,7 @@ command:new() {
 +p44b
 ENDPATCH
   info "creating standard global patch to save git checkout markers in build dirs"
-  cat >"$GLOBAL_PATCHES_DIR/002-download-save-gitrev.diff" <<'ENDPATCH'
+  cat >"$GLOBAL_PATCHES_DIR/002-download-save-gitrev.patch" <<'ENDPATCH'
 --- a/include/download.mk
 +++ b/include/download.mk
 @@ -205,7 +205,10 @@ define DownloadMethod/rawgit
@@ -1789,10 +1789,18 @@ command:buildshell() {
 
 help:metapatch() {
 cat >&2 <<ENDHELP
-Usage: ${SCRIPTNAME} metapatch new <meta-patch-name>
-       ${SCRIPTNAME} metapatch prep (tools/<toolname>|target/<targetname>|package/<packagename>) [<packagefilespath>]
-       ${SCRIPTNAME} metapatch edit (tools/<toolname>|target/<targetname>|package/<packagename>) [<packagefilespath>]
-       ${SCRIPTNAME} metapatch update (tools/<toolname>|target/<targetname>|package/<packagename>)
+Usage:
+- ${SCRIPTNAME} metapatch new <meta-patch-name>
+  Creates new global patch
+- ${SCRIPTNAME} metapatch prep (tools/<toolname>|target/<targetname>|package/<packagename>) [<packagefilespath>]
+  Prepare package or tool for openwrt level patching using \$quilt wrapper
+- ${SCRIPTNAME} metapatch edit (tools/<toolname>|target/<targetname>|package/<packagename>) [<packagefilespath>]
+  Enter subshell to do the actual patching using \$quilt wrapper
+- ${SCRIPTNAME} metapatch update (tools/<toolname>|target/<targetname>|package/<packagename>)
+  Update package source from patching done in the subshell
+
+Simplifies creating metapatches - p44build global_patches that create/modify Openwrt patches.
+
 ENDHELP
 }
 command:metapatch() {
@@ -1803,8 +1811,9 @@ command:metapatch() {
       if [[ $# -lt 1 ]]; then
         syntax "missing metapatch name"
       fi
-      METAPATCH="$1"
-      ${QUILT} new "${METAPATCH}.diff"
+      METAPATCH="${1%%.diff}"
+      METAPATCH="${METAPATCH%%.patch}"
+      ${QUILT} new "${METAPATCH}.patch"
       ;;
     "edit"|"prep")
       read_config ".config" # current settings, not saved ones
@@ -1856,6 +1865,7 @@ command:metapatch() {
       notice "Leaving metapatch subshell - back in buildroot"
       echo
       warn "now might want to use '${SCRIPTNAME} metapatch update ${PACKAGEMAKEPATH}' to get patches back into package sources"
+      warn "after that, do not forget to refresh the metapatch itself"
       ;;
     "update")
       if [[ $# -lt 1 ]]; then
