@@ -1177,10 +1177,11 @@ command:save() {
     pushd "${BUILDROOT}/feeds" >/dev/null
     for FEED in !(*.*) ; do
       pushd "${FEED}" >/dev/null
-      local GITURL=$(git remote show origin | sed -ne "/Fetch URL:/s/ *Fetch URL: //p")
+      local ORIGIN=$(git remote | head -n1)
+      local GITURL=$(git remote show ${ORIGIN} | sed -ne "/Fetch URL:/s/ *Fetch URL: //p")
       local GITREV=$(git rev-parse HEAD)
       local GITVERS=$(git rev-parse --abbrev-ref HEAD)
-      plain "feed ${FEED}: origin at ${GITURL}:${GITVERS} (SHA:${GITREV})"
+      plain "feed ${FEED}: ${ORIGIN} at ${GITURL}:${GITVERS} (SHA:${GITREV})"
       echo "${FEED} ${GITURL}:${GITVERS}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_VERS"
       echo "${FEED} ${GITURL}:${GITREV}" >>"${P44B_SRC_DIR}/${TRACKING_DIR}/feeds_SHA"
       popd >/dev/null
