@@ -2013,15 +2013,15 @@ command:send() {
 
 help:debug() {
 cat >&2 <<ENDHELP
-Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} [-s [-p <pathprefix>]] <executable>
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} [opts] <executable>
 
 Starts debugging a executable
 - sends stripped executable to TARGET_HOST (using ${SCRIPTNAME} send -d <executable>) as /tmp/debugtarget
 - starts remote debugging via ./scripts/remote-gdb
 
 Options:
-  -s : do not try to send binary (for cases where it is not at normal path)
-  -p <pathprefix> : prefix for when debuggable is not in the package's build dir root
+  -s, --nosend              : do not try to send binary (for cases where it is not at normal path)
+  -p, --prefix <pathprefix> : prefix for when debuggable is not in the package's build dir root
 
 Notes:
 - the TARGET_HOST environment variable must be set to the hostname or IP address of the target
@@ -2031,29 +2031,27 @@ ENDHELP
 command:debug() {
   local DO_SEND=1
   local PATHPREFIX=""
-  if [[ "$1" == "-s" ]]; then
-    DO_SEND=0
-    shift 1
-    if [[ "$1" == "-p" ]]; then
-      shift 1
-      PATHPREFIX="$1/"
-      shift 1
-    fi
-  fi
+  while [[ "${1:0:1}" == "-" ]]; do
+    case "$1" in
+      "-p"|"--prefix") PATHPREFIX=$2 ;shift 2;;
+      "-s"|"--nosend") DO_SEND=0; shift 1;;
+      *) syntax "unknown option $1";;
+    esac
+  done
   if [[ $# -eq 0 ]]; then
     die "need to specify executable"
   fi
+  # find executable
+  read_config ".config" # current settings, not saved ones
   local EXECNAME="$1"
-  if [[ ${DO_SEND} -ne 0 ]]; then
-    command:send -d "${EXECNAME}"
-  else
-    # need to read .config because we did not call command:send
-    read_config ".config" # current settings, not saved ones
-    warn "executable ${PATHPREFIX}${EXECNAME} must have been brought to target /tmp/debugtarget before!"
-  fi
   local EXECS=$(ls -1t ${BUILDROOT}/build_dir/${TARGETID}/${EXECNAME}-*/${PATHPREFIX}${EXECNAME})
   set -- $EXECS
   local EXEC=$1
+  if [[ ${DO_SEND} -ne 0 ]]; then
+    command:send -s "${EXEC}"
+  else
+    warn "executable ${EXEC} must have been brought to target /tmp/debugtarget before!"
+  fi
   notice "=== Debugging: ${EXEC} - paste next line into gdb"
   plain "set remote exec-file /tmp/debugtarget"
   ${BUILDROOT}/scripts/remote-gdb ${TARGET_HOST}:9000 ${EXEC}
