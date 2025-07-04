@@ -1521,7 +1521,8 @@ cat >&2 <<ENDHELP
 Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} [<optional args for build.sh or make>]
 
 If present, calls the build.sh script in the p44build/${SCRIPTS_DIR}
-otherwise, just calls "make" at the buildroot level
+otherwise, just calls make at the buildroot level.
+Before, the tidy command is run to make sure no garbage comes in the way.
 
 ENDHELP
 }
@@ -1540,6 +1541,29 @@ command:build() {
   $BUILDCMD "$@"
   finished "build"
 }
+
+
+help:make() {
+cat >&2 <<ENDHELP
+Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} [<optional args for make>]
+
+Calls suitable "make" command (possibly, gmake on platforms like macos)
+at the buildroot level.
+Before, the tidy command is run to make sure no garbage comes in the way.
+
+ENDHELP
+}
+command:make() {
+  starting "make"
+  # clean tree from (macos) debris - which otherwise might get included in packages etc.
+  command:tidy
+  # run build script/make
+  set_script_env
+  info $MAKE "$@"
+  $MAKE "$@"
+  finished "make"
+}
+
 
 
 help:flash() {
@@ -2128,10 +2152,10 @@ help:tidy() {
 cat >&2 <<ENDHELP
 Usage: ${SCRIPTNAME} ${FUNCNAME[0]##help:} [-a|--all]
 
-remove debris such as macOS .DS_Store files from buildroot
+remove debris such as macOS .DS_Store files from feeds or entire buildroot
 
 Options:
-  -a|--all : remove .DS_Store from entire buildroot
+  -a|--all : remove .DS_Store from entire buildroot (not just feeds/)
 
 Note: especially .DS_Store files can make quilt diff / refresh fail,
       so getting rid of those is important.
@@ -2142,11 +2166,13 @@ ENDHELP
 }
 command:tidy() {
   # clean feeds from MacOS folder state files
+  info "cleaning debris (.DS_Store files)..."
   if [[ "$1" == "-a" || "$1" == "--all" ]]; then
     find ${BUILDROOT} -name .DS_Store -print -delete
   else
     find ${BUILDROOT}/feeds -name .DS_Store -print -delete
   fi
+  info "done cleaning"
 }
 
 
